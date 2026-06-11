@@ -1,4 +1,4 @@
-import type { RootState } from './index';
+import type { RootState } from '@/store';
 
 export const selectCurrentWorkout = (state: RootState) => state.workout.currentWorkout;
 
