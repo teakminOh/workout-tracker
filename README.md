@@ -19,11 +19,14 @@ npm run web
 
 ## Current Features
 
-- Home screen with active workout status
+- Home screen with the active 3-day split
 - Start Workout screen
-- Add set form with exercise, reps, and weight
+- Planned program days for Push, Pull, and Legs
+- Planned exercises with target sets, reps, and weights
+- Add set form for reps and actual weight
 - Live workout analytics for sets, volume, and duration
-- Redux Toolkit state for the active workout
+- Progressive overload suggestions using double progression
+- Redux Toolkit state for programs, templates, sessions, and sets
 
 ## Project Structure
 

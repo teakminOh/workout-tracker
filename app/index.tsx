@@ -7,31 +7,39 @@ import { AppButton } from '@/components/ui/app-button';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { WorkoutAnalyticsSummary } from '@/components/workout/analytics-summary';
 import {
-  selectCurrentWorkout,
+  selectActiveProgram,
+  selectActiveProgramDays,
+  selectActiveWorkoutSession,
   selectTotalSets,
   selectTotalVolume,
 } from '@/features/workouts/workout-selectors';
-import { clearCurrentWorkout, startWorkout } from '@/features/workouts/workout-slice';
+import { clearCurrentWorkout, startWorkoutSession } from '@/features/workouts/workout-slice';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 
 export default function HomeScreen() {
   const router = useRouter();
   const dispatch = useAppDispatch();
-  const currentWorkout = useAppSelector(selectCurrentWorkout);
+  const activeProgram = useAppSelector(selectActiveProgram);
+  const activeSession = useAppSelector(selectActiveWorkoutSession);
   const totalSets = useAppSelector(selectTotalSets);
   const totalVolume = useAppSelector(selectTotalVolume);
-  const hasActiveWorkout = currentWorkout !== null;
+  const programDays = useAppSelector(selectActiveProgramDays);
+  const hasActiveWorkout = activeSession !== null;
 
-  const startedAtLabel = currentWorkout
-    ? new Date(currentWorkout.startedAt).toLocaleTimeString([], {
+  const startedAtLabel = activeSession
+    ? new Date(activeSession.startedAt).toLocaleTimeString([], {
         hour: '2-digit',
         minute: '2-digit',
       })
     : null;
 
-  const handleStartWorkout = () => {
+  const handleStartDay = (workoutDayTemplateId: string) => {
+    if (!activeProgram) {
+      return;
+    }
+
     if (!hasActiveWorkout) {
-      dispatch(startWorkout({ name: "Today's Workout" }));
+      dispatch(startWorkoutSession({ programId: activeProgram.id, workoutDayTemplateId }));
     }
 
     router.push('/start-workout' as Href);
@@ -49,16 +57,20 @@ export default function HomeScreen() {
         <ThemedView className="gap-2">
           <ThemedText type="title">Workout Tracker</ThemedText>
           <ThemedText className="opacity-70">
-            {hasActiveWorkout ? 'You have a workout in progress.' : 'Start your first workout.'}
+            {activeProgram
+              ? `${activeProgram.name}: choose a program day.`
+              : 'Create a program to get started.'}
           </ThemedText>
         </ThemedView>
 
         <ThemedView lightColor="#F3FAF8" darkColor="#1D2826" className="gap-4 rounded-xl p-5">
           <ThemedText type="subtitle">
-            {hasActiveWorkout ? currentWorkout.name : 'No active workout'}
+            {hasActiveWorkout ? activeSession.name : activeProgram?.name ?? 'No active program'}
           </ThemedText>
           <ThemedText className="opacity-70">
-            {startedAtLabel ? `Started at ${startedAtLabel}` : 'Tap Start Workout to create one.'}
+            {startedAtLabel
+              ? `Started at ${startedAtLabel}`
+              : 'Start a day from your program to begin logging sets.'}
           </ThemedText>
 
           <WorkoutAnalyticsSummary
@@ -69,10 +81,20 @@ export default function HomeScreen() {
           />
 
           <View className="gap-3">
-            <AppButton
-              title={hasActiveWorkout ? 'Continue Workout' : 'Start Workout'}
-              onPress={handleStartWorkout}
-            />
+            {hasActiveWorkout ? (
+              <AppButton
+                title={`Continue ${activeSession.name}`}
+                onPress={() => router.push('/start-workout' as Href)}
+              />
+            ) : (
+              programDays.map((day) => (
+                <AppButton
+                  key={day.id}
+                  title={`Start ${day.name}`}
+                  onPress={() => handleStartDay(day.id)}
+                />
+              ))
+            )}
 
             <AppButton
               title="Clear Workout"

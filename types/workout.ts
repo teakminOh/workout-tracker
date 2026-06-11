@@ -1,28 +1,114 @@
-export type WorkoutSet = {
-  id: string;
-  exerciseName: string;
-  reps: number;
-  weight: number;
-  createdAt: string;
-};
+export type ExerciseCategory =
+  | 'chest'
+  | 'back'
+  | 'legs'
+  | 'shoulders'
+  | 'arms'
+  | 'core'
+  | 'other';
 
-export type ActiveWorkout = {
+export type WeightUnit = 'kg' | 'lb' | 'bodyweight';
+
+export type Exercise = {
   id: string;
   name: string;
+  category?: ExerciseCategory;
+  defaultUnit: WeightUnit;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorkoutProgram = {
+  id: string;
+  name: string;
+  description?: string;
+  dayIds: string[];
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorkoutDayTemplate = {
+  id: string;
+  programId: string;
+  name: string;
+  order: number;
+  exerciseIds: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProgramExercise = {
+  id: string;
+  workoutDayTemplateId: string;
+  exerciseId: string;
+  order: number;
+  targetSets: number;
+  targetRepMin: number;
+  targetRepMax: number;
+  targetWeight?: number;
+  restSeconds?: number;
+  progressionRuleId?: string;
+  notes?: string;
+};
+
+export type WorkoutSessionStatus = 'active' | 'completed' | 'discarded';
+
+export type WorkoutSession = {
+  id: string;
+  programId?: string;
+  workoutDayTemplateId?: string;
+  name: string;
   startedAt: string;
-  sets: WorkoutSet[];
+  endedAt?: string;
+  setIds: string[];
+  status: WorkoutSessionStatus;
+};
+
+export type WorkoutSet = {
+  id: string;
+  workoutSessionId: string;
+  exerciseId: string;
+  programExerciseId?: string;
+  setNumber: number;
+  reps: number;
+  weight: number;
+  unit: WeightUnit;
+  completedAt: string;
+  notes?: string;
+};
+
+export type ProgressionRule = {
+  id: string;
+  name: string;
+  type: 'doubleProgression';
+  repMin: number;
+  repMax: number;
+  weightIncrement: number;
+  unit: 'kg' | 'lb';
 };
 
 export type WorkoutState = {
-  currentWorkout: ActiveWorkout | null;
+  exercises: Record<string, Exercise>;
+  programs: Record<string, WorkoutProgram>;
+  workoutDayTemplates: Record<string, WorkoutDayTemplate>;
+  programExercises: Record<string, ProgramExercise>;
+  workoutSessions: Record<string, WorkoutSession>;
+  workoutSets: Record<string, WorkoutSet>;
+  progressionRules: Record<string, ProgressionRule>;
+  activeWorkoutSessionId: string | null;
 };
 
-export type StartWorkoutInput = {
-  name?: string;
+export type StartWorkoutSessionInput = {
+  programId: string;
+  workoutDayTemplateId: string;
 };
 
 export type AddSetInput = {
-  exerciseName: string;
+  exerciseId: string;
+  programExerciseId?: string;
   reps: number;
   weight: number;
+  notes?: string;
 };
