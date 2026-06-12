@@ -9,7 +9,9 @@ export type ExerciseCategory =
 
 export type WeightUnit = 'kg' | 'lb' | 'bodyweight';
 
-export type TrainingGoal = 'strength' | 'hypertrophy' | 'power' | 'endurance';
+export type TrainingGoal = 'strength' | 'hypertrophy' | 'power';
+
+export type ExerciseTrackingMode = 'reps' | 'time';
 
 export type MuscleGroup =
   | 'chest'
@@ -56,6 +58,8 @@ export type WorkoutDayTemplate = {
   name: string;
   order: number;
   exerciseIds: string[];
+  isArchived?: boolean;
+  archivedAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -66,13 +70,18 @@ export type ProgramExercise = {
   exerciseId: string;
   order: number;
   targetSets: number;
-  targetRepMin: number;
-  targetRepMax: number;
+  trackingMode?: ExerciseTrackingMode;
+  targetRepMin?: number;
+  targetRepMax?: number;
+  targetSecondsMin?: number;
+  targetSecondsMax?: number;
   trainingGoal?: TrainingGoal;
   targetWeight?: number;
   restSeconds?: number;
   progressionRuleId?: string;
   notes?: string;
+  isArchived?: boolean;
+  archivedAt?: string;
 };
 
 export type WorkoutSessionStatus = 'active' | 'completed' | 'discarded';
@@ -94,7 +103,8 @@ export type WorkoutSet = {
   exerciseId: string;
   programExerciseId?: string;
   setNumber: number;
-  reps: number;
+  reps?: number;
+  durationSeconds?: number;
   weight: number;
   unit: WeightUnit;
   powerQuality?: PowerQuality;
@@ -128,10 +138,78 @@ export type StartWorkoutSessionInput = {
   workoutDayTemplateId: string;
 };
 
+export type CreateWorkoutProgramExerciseInput = {
+  name: string;
+  unit: WeightUnit;
+  trainingGoal: TrainingGoal;
+  trackingMode: ExerciseTrackingMode;
+  targetSets: number;
+  targetRepMin?: number;
+  targetRepMax?: number;
+  targetSecondsMin?: number;
+  targetSecondsMax?: number;
+  targetWeight?: number;
+};
+
+export type CreateWorkoutProgramDayInput = {
+  name: string;
+  exercises: CreateWorkoutProgramExerciseInput[];
+};
+
+export type CreateWorkoutProgramInput = {
+  name: string;
+  days: CreateWorkoutProgramDayInput[];
+};
+
+export type UpdateWorkoutProgramInput = {
+  programId: string;
+  name: string;
+};
+
+export type AddWorkoutDayInput = {
+  programId: string;
+  name?: string;
+};
+
+export type UpdateWorkoutDayInput = {
+  workoutDayTemplateId: string;
+  name: string;
+};
+
+export type ArchiveWorkoutDayInput = {
+  workoutDayTemplateId: string;
+};
+
+export type ReorderWorkoutDaysInput = {
+  programId: string;
+  workoutDayTemplateIds: string[];
+};
+
+export type AddProgramExerciseInput = {
+  workoutDayTemplateId: string;
+  insertAfterProgramExerciseId?: string | null;
+  exercise: CreateWorkoutProgramExerciseInput;
+};
+
+export type UpdateProgramExerciseInput = {
+  programExerciseId: string;
+  exercise: CreateWorkoutProgramExerciseInput;
+};
+
+export type ArchiveProgramExerciseInput = {
+  programExerciseId: string;
+};
+
+export type ReorderProgramExercisesInput = {
+  workoutDayTemplateId: string;
+  programExerciseIds: string[];
+};
+
 export type AddSetInput = {
   exerciseId: string;
   programExerciseId?: string;
-  reps: number;
+  reps?: number;
+  durationSeconds?: number;
   weight: number;
   powerQuality?: PowerQuality;
   notes?: string;
@@ -139,7 +217,8 @@ export type AddSetInput = {
 
 export type UpdateSetInput = {
   setId: string;
-  reps: number;
+  reps?: number;
+  durationSeconds?: number;
   weight: number;
   powerQuality?: PowerQuality;
 };

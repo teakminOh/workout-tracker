@@ -5,6 +5,7 @@ import type {
   MuscleGroup,
   ProgramExercise,
   TrainingGoal,
+  WeightUnit,
   WorkoutProgram,
   WorkoutDayTemplate,
   WorkoutSession,
@@ -18,6 +19,24 @@ export type PlannedExercise = {
   exerciseName: string;
   unit: string;
   progressionSuggestion: string;
+};
+
+export type ProgramSummary = {
+  id: string;
+  name: string;
+  dayCount: number;
+  exerciseCount: number;
+};
+
+export type ProgramEditorExercise = {
+  programExercise: ProgramExercise;
+  exerciseName: string;
+  unit: WeightUnit;
+};
+
+export type ProgramEditorDay = {
+  day: WorkoutDayTemplate;
+  exercises: ProgramEditorExercise[];
 };
 
 export type ProgramWeekSummary = {
@@ -52,7 +71,8 @@ export type GoalInsightSummary = {
 };
 
 export type SuggestedWorkoutSet = {
-  reps: number;
+  reps?: number;
+  durationSeconds?: number;
   weight: number;
   unit: WorkoutSet['unit'];
 };
@@ -67,11 +87,12 @@ export type LastExerciseReference = {
   suggestedSets: SuggestedWorkoutSet[];
 };
 
-type WorkoutSetSummaryItem = Pick<WorkoutSet, 'reps' | 'unit' | 'weight'>;
+type WorkoutSetSummaryItem = Pick<WorkoutSet, 'durationSeconds' | 'reps' | 'unit' | 'weight'>;
 
 const emptyProgramDays: WorkoutDayTemplate[] = [];
 const emptyWorkoutSets: WorkoutSet[] = [];
 const emptyPlannedExercises: PlannedExercise[] = [];
+const emptyProgramEditorDays: ProgramEditorDay[] = [];
 const emptyCompletedSessions: WorkoutSession[] = [];
 const emptyCompletedWorkouts: CompletedWorkoutSummary[] = [];
 const emptyProgressionSuggestions: ProgressionSuggestionSummary[] = [];
@@ -124,15 +145,21 @@ const getProgramDays = (
   program.dayIds
     .map((dayId) => workoutDayTemplates[dayId])
     .filter(
-      (day): day is WorkoutDayTemplate => Boolean(day) && day.programId === program.id
-    );
+      (day): day is WorkoutDayTemplate =>
+        Boolean(day) && day.programId === program.id && !day.isArchived
+    )
+    .sort((a, b) => a.order - b.order);
 
 const getProgramExercisesForDay = (
   programExercises: WorkoutState['programExercises'],
   workoutDayTemplateId: string
 ) =>
   Object.values(programExercises)
-    .filter((programExercise) => programExercise.workoutDayTemplateId === workoutDayTemplateId)
+    .filter(
+      (programExercise) =>
+        programExercise.workoutDayTemplateId === workoutDayTemplateId &&
+        !programExercise.isArchived
+    )
     .sort((a, b) => a.order - b.order);
 
 const getSessionStartedAtTime = (session: WorkoutSession) => new Date(session.startedAt).getTime();
@@ -159,7 +186,7 @@ const getSessionSummary = (session: WorkoutSession, workoutSets: WorkoutState['w
   return {
     durationSeconds: getSessionDurationSeconds(session),
     sets: sets.length,
-    volume: sets.reduce((total, set) => total + set.reps * set.weight, 0),
+    volume: sets.reduce((total, set) => total + getSetVolume(set), 0),
   };
 };
 
@@ -176,8 +203,36 @@ const getDateRangeLabel = (startDate: Date, endDate: Date) =>
 const formatWeight = (weight: number, unit: WorkoutSet['unit']) =>
   unit === 'bodyweight' ? 'BW' : `${weight}${unit}`;
 
+const getTrackingMode = (programExercise: ProgramExercise) =>
+  programExercise.trackingMode ?? 'reps';
+
+const getTargetMin = (programExercise: ProgramExercise) =>
+  getTrackingMode(programExercise) === 'time'
+    ? programExercise.targetSecondsMin ?? 30
+    : programExercise.targetRepMin ?? 1;
+
+const getTargetMax = (programExercise: ProgramExercise) =>
+  getTrackingMode(programExercise) === 'time'
+    ? programExercise.targetSecondsMax ?? getTargetMin(programExercise)
+    : programExercise.targetRepMax ?? getTargetMin(programExercise);
+
+const getTargetUnitLabel = (programExercise: ProgramExercise) =>
+  getTrackingMode(programExercise) === 'time' ? 'sec' : 'reps';
+
+const getTargetRangeLabel = (programExercise: ProgramExercise) =>
+  `${programExercise.targetSets} x ${getTargetMin(programExercise)}-${getTargetMax(
+    programExercise
+  )} ${getTargetUnitLabel(programExercise)}`;
+
+const getSetWorkAmount = (set: WorkoutSetSummaryItem) => set.reps ?? set.durationSeconds ?? 0;
+
+const getSetWorkLabel = (set: WorkoutSetSummaryItem) =>
+  set.durationSeconds !== undefined ? `${set.durationSeconds}s` : `${set.reps ?? 0} reps`;
+
+const getSetVolume = (set: WorkoutSetSummaryItem) => (set.reps ?? 0) * set.weight;
+
 const formatWorkoutSet = (set: WorkoutSetSummaryItem) =>
-  `${formatWeight(set.weight, set.unit)} x ${set.reps}`;
+  `${formatWeight(set.weight, set.unit)} x ${getSetWorkLabel(set)}`;
 
 const formatWorkoutSetsSummary = (sets: WorkoutSetSummaryItem[]) => {
   if (sets.length === 0) {
@@ -191,7 +246,7 @@ const formatWorkoutSetsSummary = (sets: WorkoutSetSummaryItem[]) => {
 
   if (sameWeightAndUnit) {
     return `${formatWeight(firstSet.weight, firstSet.unit)} x ${sets
-      .map((set) => set.reps)
+      .map(getSetWorkLabel)
       .join(', ')}`;
   }
 
@@ -201,7 +256,9 @@ const formatWorkoutSetsSummary = (sets: WorkoutSetSummaryItem[]) => {
 const getBestSet = (sets: WorkoutSet[]) =>
   [...sets].sort(
     (a, b) =>
-      b.weight * b.reps - a.weight * a.reps || b.weight - a.weight || b.reps - a.reps
+      getSetVolume(b) - getSetVolume(a) ||
+      b.weight - a.weight ||
+      getSetWorkAmount(b) - getSetWorkAmount(a)
   )[0];
 
 const getProgramForWeekCalculations = (
@@ -236,7 +293,7 @@ const getPlannedExercisesForDay = ({
   progressionRules: WorkoutState['progressionRules'];
   workoutSets: WorkoutState['workoutSets'];
 }) => {
-  if (!day) {
+  if (!day || day.isArchived) {
     return emptyPlannedExercises;
   }
 
@@ -264,8 +321,84 @@ const getPlannedExercisesForDay = ({
   });
 };
 
-export const selectActiveProgram = createSelector([selectPrograms], (programs) =>
-  Object.values(programs).find((program) => program.isActive) ?? null
+export const selectActiveWorkoutSession = createSelector(
+  [selectActiveWorkoutSessionId, selectWorkoutSessions],
+  (activeWorkoutSessionId, workoutSessions) =>
+    activeWorkoutSessionId ? workoutSessions[activeWorkoutSessionId] ?? null : null
+);
+
+export const selectActiveProgram = createSelector(
+  [selectActiveWorkoutSession, selectPrograms],
+  (activeSession, programs) =>
+    activeSession?.programId ? programs[activeSession.programId] ?? null : null
+);
+
+export const selectProgramSummaries = createSelector(
+  [selectPrograms, selectWorkoutDayTemplates, selectProgramExercises],
+  (programs, workoutDayTemplates, programExercises): ProgramSummary[] =>
+    Object.values(programs)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      .map((program) => {
+        const days = getProgramDays(workoutDayTemplates, program);
+
+        return {
+          id: program.id,
+          name: program.name,
+          dayCount: days.length,
+          exerciseCount: days.reduce(
+            (total, day) => total + getProgramExercisesForDay(programExercises, day.id).length,
+            0
+          ),
+        };
+      })
+);
+
+export const selectProgramById = (state: RootState, programId: string) =>
+  state.workout.programs[programId] ?? null;
+
+const selectProgramIdParam = (_state: RootState, programId: string) => programId;
+
+export const selectProgramDaysByProgramId = createSelector(
+  [selectPrograms, selectWorkoutDayTemplates, selectProgramIdParam],
+  (programs, workoutDayTemplates, programId) => {
+    const program = programs[programId];
+
+    if (!program) {
+      return emptyProgramDays;
+    }
+
+    return getProgramDays(workoutDayTemplates, program);
+  }
+);
+
+export const selectProgramEditorDaysByProgramId = createSelector(
+  [selectPrograms, selectWorkoutDayTemplates, selectProgramExercises, selectExercises, selectProgramIdParam],
+  (programs, workoutDayTemplates, programExercises, exercises, programId): ProgramEditorDay[] => {
+    const program = programs[programId];
+
+    if (!program) {
+      return emptyProgramEditorDays;
+    }
+
+    const days = getProgramDays(workoutDayTemplates, program);
+
+    if (days.length === 0) {
+      return emptyProgramEditorDays;
+    }
+
+    return days.map((day) => ({
+      day,
+      exercises: getProgramExercisesForDay(programExercises, day.id).map((programExercise) => {
+        const exercise = exercises[programExercise.exerciseId];
+
+        return {
+          programExercise,
+          exerciseName: exercise?.name ?? 'Exercise',
+          unit: exercise?.defaultUnit ?? 'kg',
+        };
+      }),
+    }));
+  }
 );
 
 export const selectActiveProgramDays = createSelector(
@@ -277,12 +410,6 @@ export const selectActiveProgramDays = createSelector(
 
     return getProgramDays(workoutDayTemplates, activeProgram);
   }
-);
-
-export const selectActiveWorkoutSession = createSelector(
-  [selectActiveWorkoutSessionId, selectWorkoutSessions],
-  (activeWorkoutSessionId, workoutSessions) =>
-    activeWorkoutSessionId ? workoutSessions[activeWorkoutSessionId] ?? null : null
 );
 
 export const selectActiveSessionSets = createSelector(
@@ -476,7 +603,7 @@ export const selectTotalSets = createSelector(
 );
 
 export const selectTotalVolume = createSelector([selectActiveSessionSets], (activeSessionSets) =>
-  activeSessionSets.reduce((total, set) => total + set.reps * set.weight, 0)
+  activeSessionSets.reduce((total, set) => total + getSetVolume(set), 0)
 );
 
 export const selectCurrentProgramWeekSummary = createSelector(
@@ -589,7 +716,7 @@ export const selectStrengthFocusInsight = createSelector(
       return {
         id: programExercise.id,
         title: plannedExercise.exerciseName,
-        detail: `${programExercise.targetSets} sets of ${programExercise.targetRepMin}-${programExercise.targetRepMax} reps planned.`,
+        detail: `${getTargetRangeLabel(programExercise)} planned.`,
       };
     }
 
@@ -610,7 +737,7 @@ export const selectStrengthFocusInsight = createSelector(
       title: plannedExercise.exerciseName,
       detail: needsDeload
         ? `Two sessions missed target reps. Consider a deload before rebuilding.`
-        : `Top set ${topSet.weight}kg x ${topSet.reps}, e1RM ${estimatedOneRepMax.toFixed(
+        : `Top set ${formatWorkoutSet(topSet)}, e1RM ${estimatedOneRepMax.toFixed(
             1
           )}kg. ${heavySetCount} heavy sets. ${targetStatus}`,
     };
@@ -756,7 +883,7 @@ const getFirstPlannedExerciseByGoal = (
     (plannedExercise) => plannedExercise.programExercise.trainingGoal === trainingGoal
   ) ?? null;
 
-const getEstimatedOneRepMax = (set: WorkoutSet) => set.weight * (1 + set.reps / 30);
+const getEstimatedOneRepMax = (set: WorkoutSet) => set.weight * (1 + (set.reps ?? 0) / 30);
 
 const getTopStrengthSet = (sets: WorkoutSet[]) =>
   [...sets].sort((a, b) => getEstimatedOneRepMax(b) - getEstimatedOneRepMax(a))[0];
@@ -771,15 +898,19 @@ const getTargetCompletionText = (
     return `${completedTargetSets.length}/${programExercise.targetSets} target sets logged.`;
   }
 
-  if (completedTargetSets.every((set) => set.reps >= programExercise.targetRepMax)) {
-    return 'All target sets reached the top rep target.';
+  if (completedTargetSets.every((set) => getSetWorkAmount(set) >= getTargetMax(programExercise))) {
+    return getTrackingMode(programExercise) === 'time'
+      ? 'All target sets reached the top time target.'
+      : 'All target sets reached the top rep target.';
   }
 
-  if (completedTargetSets.every((set) => set.reps >= programExercise.targetRepMin)) {
+  if (completedTargetSets.every((set) => getSetWorkAmount(set) >= getTargetMin(programExercise))) {
     return 'Target range completed.';
   }
 
-  return 'Repeat the load until target reps are consistent.';
+  return getTrackingMode(programExercise) === 'time'
+    ? 'Repeat until target time is consistent.'
+    : 'Repeat the load until target reps are consistent.';
 };
 
 const countSetsForMuscleGroup = (
@@ -849,10 +980,6 @@ const getProgressionSuggestion = ({
     }
 
     return getStrengthProgressionSuggestion(programExercise, relevantSets, rule);
-  }
-
-  if (programExercise.trainingGoal === 'endurance') {
-    return getEnduranceProgressionSuggestion(programExercise, relevantSets);
   }
 
   if (!rule || baselineWeight === undefined) {
@@ -947,25 +1074,40 @@ const getSuggestedSetsForProgramExercise = ({
     ? progressionRules[programExercise.progressionRuleId]
     : null;
   const targetSetCount = Math.max(1, programExercise.targetSets);
-  const previousTargetSets = sets.slice(0, targetSetCount);
+  const previousTargetSets = sets.slice(-targetSetCount);
   const lastSet = previousTargetSets[previousTargetSets.length - 1] ?? sets[sets.length - 1];
   const fallbackWeight = lastSet?.weight ?? programExercise.targetWeight ?? 0;
   const fallbackUnit = lastSet?.unit ?? 'kg';
+  const trackingMode = getTrackingMode(programExercise);
   const normalizedSets = Array.from({ length: targetSetCount }, (_, index) => {
     const previousSet =
       previousTargetSets[index] ??
       previousTargetSets[previousTargetSets.length - 1] ??
       lastSet;
 
-    return {
-      reps: normalizeSuggestedReps(
-        previousSet?.reps ?? programExercise.targetRepMin,
-        programExercise
-      ),
+    const suggestedSet: SuggestedWorkoutSet = {
       weight: previousSet?.weight ?? fallbackWeight,
       unit: previousSet?.unit ?? fallbackUnit,
     };
+
+    if (trackingMode === 'time') {
+      suggestedSet.durationSeconds = normalizeSuggestedDuration(
+        previousSet?.durationSeconds ?? programExercise.targetSecondsMin ?? 30,
+        programExercise
+      );
+    } else {
+      suggestedSet.reps = normalizeSuggestedReps(
+        previousSet?.reps ?? programExercise.targetRepMin ?? 1,
+        programExercise
+      );
+    }
+
+    return suggestedSet;
   });
+
+  if (trackingMode === 'time') {
+    return getTimeSuggestedSets(programExercise, normalizedSets, previousTargetSets);
+  }
 
   if (programExercise.trainingGoal === 'strength') {
     return getStrengthSuggestedSets(programExercise, normalizedSets, sets, rule);
@@ -983,7 +1125,49 @@ const getSuggestedSetsForProgramExercise = ({
 };
 
 const normalizeSuggestedReps = (reps: number, programExercise: ProgramExercise) =>
-  Math.min(programExercise.targetRepMax, Math.max(programExercise.targetRepMin, Math.round(reps)));
+  Math.min(getTargetMax(programExercise), Math.max(getTargetMin(programExercise), Math.round(reps)));
+
+const normalizeSuggestedDuration = (durationSeconds: number, programExercise: ProgramExercise) =>
+  Math.min(
+    getTargetMax(programExercise),
+    Math.max(getTargetMin(programExercise), Math.round(durationSeconds))
+  );
+
+const getTimeSuggestedSets = (
+  programExercise: ProgramExercise,
+  normalizedSets: SuggestedWorkoutSet[],
+  previousTargetSets: WorkoutSet[]
+) => {
+  const hadBelowMinimum =
+    previousTargetSets.length < programExercise.targetSets ||
+    previousTargetSets.some((set) => getSetWorkAmount(set) < getTargetMin(programExercise));
+
+  if (hadBelowMinimum) {
+    return normalizedSets;
+  }
+
+  const lowestDuration = Math.min(
+    ...normalizedSets.map((set) => set.durationSeconds ?? getTargetMin(programExercise))
+  );
+  const setIndexToProgress = normalizedSets.findIndex(
+    (set) =>
+      (set.durationSeconds ?? getTargetMin(programExercise)) === lowestDuration &&
+      lowestDuration < getTargetMax(programExercise)
+  );
+
+  if (setIndexToProgress === -1) {
+    return normalizedSets;
+  }
+
+  return normalizedSets.map((set, index) =>
+    index === setIndexToProgress
+      ? {
+          ...set,
+          durationSeconds: Math.min(getTargetMax(programExercise), lowestDuration + 5),
+        }
+      : set
+  );
+};
 
 const getStrengthSuggestedSets = (
   programExercise: ProgramExercise,
@@ -999,7 +1183,7 @@ const getStrengthSuggestedSets = (
   const unit = sets[sets.length - 1]?.unit ?? normalizedSets[0]?.unit ?? 'kg';
 
   return normalizedSets.map(() => ({
-    reps: programExercise.targetRepMin,
+    reps: getTargetMin(programExercise),
     weight: baselineWeight + rule.weightIncrement,
     unit,
   }));
@@ -1012,15 +1196,17 @@ const getRepsFirstSuggestedSets = (
 ) => {
   const hadBelowMinimum =
     previousTargetSets.length < programExercise.targetSets ||
-    previousTargetSets.some((set) => set.reps < programExercise.targetRepMin);
+    previousTargetSets.some((set) => getSetWorkAmount(set) < getTargetMin(programExercise));
 
   if (hadBelowMinimum) {
     return normalizedSets;
   }
 
-  const lowestReps = Math.min(...normalizedSets.map((set) => set.reps));
+  const lowestReps = Math.min(...normalizedSets.map((set) => set.reps ?? getTargetMin(programExercise)));
   const setIndexToProgress = normalizedSets.findIndex(
-    (set) => set.reps === lowestReps && set.reps < programExercise.targetRepMax
+    (set) =>
+      (set.reps ?? getTargetMin(programExercise)) === lowestReps &&
+      lowestReps < getTargetMax(programExercise)
   );
 
   if (setIndexToProgress === -1) {
@@ -1029,7 +1215,7 @@ const getRepsFirstSuggestedSets = (
 
   return normalizedSets.map((set, index) =>
     index === setIndexToProgress
-      ? { ...set, reps: Math.min(programExercise.targetRepMax, set.reps + 1) }
+      ? { ...set, reps: Math.min(getTargetMax(programExercise), lowestReps + 1) }
       : set
   );
 };
@@ -1059,7 +1245,7 @@ const getPowerSuggestedSets = (
   const unit = sets[sets.length - 1]?.unit ?? normalizedSets[0]?.unit ?? 'kg';
 
   return normalizedSets.map(() => ({
-    reps: programExercise.targetRepMin,
+    reps: getTargetMin(programExercise),
     weight: baselineWeight + increment,
     unit,
   }));
@@ -1077,7 +1263,9 @@ const getSuggestedSetText = (
   const sameSuggestedWeight = suggestedSets.every(
     (set) => set.weight === firstSuggestedSet.weight && set.unit === firstSuggestedSet.unit
   );
-  const sameSuggestedReps = suggestedSets.every((set) => set.reps === firstSuggestedSet.reps);
+  const sameSuggestedWork = suggestedSets.every(
+    (set) => getSetWorkLabel(set) === getSetWorkLabel(firstSuggestedSet)
+  );
   const sameWeightAsLastTime =
     sameSuggestedWeight &&
     lastSets.length > 0 &&
@@ -1085,12 +1273,14 @@ const getSuggestedSetText = (
       (set) => set.weight === firstSuggestedSet.weight && set.unit === firstSuggestedSet.unit
     );
 
-  if (sameSuggestedWeight && sameSuggestedReps && sameWeightAsLastTime) {
-    return `Try ${firstSuggestedSet.reps} reps on all sets`;
+  if (sameSuggestedWeight && sameSuggestedWork && sameWeightAsLastTime) {
+    return `Try ${getSetWorkLabel(firstSuggestedSet)} on all sets`;
   }
 
-  if (sameSuggestedWeight && sameSuggestedReps) {
-    return `Try ${formatWeight(firstSuggestedSet.weight, firstSuggestedSet.unit)} x ${firstSuggestedSet.reps} on all sets`;
+  if (sameSuggestedWeight && sameSuggestedWork) {
+    return `Try ${formatWeight(firstSuggestedSet.weight, firstSuggestedSet.unit)} x ${getSetWorkLabel(
+      firstSuggestedSet
+    )} on all sets`;
   }
 
   return `Try ${formatWorkoutSetsSummary(suggestedSets)}`;
@@ -1124,7 +1314,7 @@ const getHypertrophyProgressionSuggestion = (
     return 'Add reps before adding weight';
   }
 
-  if (didHitTopRepTarget(programExercise, relevantSets, programExercise.targetRepMax)) {
+  if (didHitTopRepTarget(programExercise, relevantSets, getTargetMax(programExercise))) {
     return `Next: ${baselineWeight + weightIncrement}kg after all target reps`;
   }
 
@@ -1150,25 +1340,6 @@ const getPowerProgressionSuggestion = (
   return 'Quality looks good - keep speed the priority';
 };
 
-const getEnduranceProgressionSuggestion = (
-  programExercise: ProgramExercise,
-  relevantSets: WorkoutSet[]
-) => {
-  const baselineWeight = relevantSets[relevantSets.length - 1]?.weight ?? programExercise.targetWeight;
-
-  if (relevantSets.length === 0) {
-    return `Build toward ${programExercise.targetRepMin}-${programExercise.targetRepMax} reps`;
-  }
-
-  if (didHitTopRepTarget(programExercise, relevantSets, programExercise.targetRepMax)) {
-    return 'Add reps or duration before adding load';
-  }
-
-  return baselineWeight === undefined
-    ? 'Repeat and add reps'
-    : `Repeat ${baselineWeight}kg and add reps`;
-};
-
 const didHitTopRepTarget = (
   programExercise: ProgramExercise,
   relevantSets: WorkoutSet[],
@@ -1178,7 +1349,7 @@ const didHitTopRepTarget = (
 
   return (
     completedTargetSets.length >= programExercise.targetSets &&
-    completedTargetSets.every((set) => set.reps >= repMax)
+    completedTargetSets.every((set) => getSetWorkAmount(set) >= repMax)
   );
 };
 
@@ -1190,7 +1361,7 @@ const didMissBottomRepTarget = (
 
   return (
     completedTargetSets.length >= programExercise.targetSets &&
-    completedTargetSets.some((set) => set.reps < programExercise.targetRepMin)
+    completedTargetSets.some((set) => getSetWorkAmount(set) < getTargetMin(programExercise))
   );
 };
 

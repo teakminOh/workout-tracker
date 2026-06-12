@@ -8,7 +8,6 @@ import { AppButton } from '@/components/ui/app-button';
 import { WorkoutAnalyticsSummary } from '@/components/workout/analytics-summary';
 import {
   selectActiveProgram,
-  selectActiveProgramDays,
   selectActiveSessionDay,
   selectActiveSessionExerciseReferences,
   selectActiveSessionPlannedExercises,
@@ -22,11 +21,10 @@ import {
   clearCurrentWorkout,
   deleteSet,
   finishCurrentWorkout,
-  startWorkoutSession,
   updateSet,
 } from '@/features/workouts/workout-slice';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import type { PowerQuality } from '@/types/workout';
+import type { PowerQuality, ProgramExercise, WorkoutSet } from '@/types/workout';
 import { formatDuration, parseWorkoutNumberInput } from '@/utils/workout-formatters';
 
 const inputClassName =
@@ -48,6 +46,24 @@ const powerQualityLabels: Record<PowerQuality, string> = {
   good: 'Good',
   slow: 'Slow',
 };
+
+const getPlannedExerciseTargetText = (programExercise: ProgramExercise) => {
+  if (programExercise.trackingMode === 'time') {
+    return `${programExercise.targetSets} x ${programExercise.targetSecondsMin ?? 30}-${
+      programExercise.targetSecondsMax ?? 60
+    }s`;
+  }
+
+  return `${programExercise.targetSets} x ${programExercise.targetRepMin ?? 1}-${
+    programExercise.targetRepMax ?? programExercise.targetRepMin ?? 1
+  }`;
+};
+
+const getSetWorkLabel = (set: WorkoutSet) =>
+  set.durationSeconds !== undefined ? `${set.durationSeconds}s` : `${set.reps ?? 0} reps`;
+
+const getSetTotalLabel = (set: WorkoutSet) =>
+  set.durationSeconds !== undefined ? `${set.durationSeconds}s` : `${(set.reps ?? 0) * set.weight}`;
 
 type CompletedWorkoutSummary = {
   name: string;
@@ -90,7 +106,7 @@ export default function StartWorkoutScreen() {
   const activeSets = useAppSelector(selectActiveSessionSets);
   const totalSets = useAppSelector(selectTotalSets);
   const totalVolume = useAppSelector(selectTotalVolume);
-  const programDays = useAppSelector(selectActiveProgramDays);
+  const exercisesById = useAppSelector((state) => state.workout.exercises);
 
   const [selectedProgramExerciseId, setSelectedProgramExerciseId] = useState<string | null>(null);
   const [editingSetId, setEditingSetId] = useState<string | null>(null);
@@ -131,8 +147,19 @@ export default function StartWorkoutScreen() {
             ]
           : null;
 
+      const isTimeBasedExercise = plannedExercise?.programExercise.trackingMode === 'time';
+      const fallbackWorkAmount = isTimeBasedExercise
+        ? plannedExercise?.programExercise.targetSecondsMin
+        : plannedExercise?.programExercise.targetRepMin;
+
       return {
-        repsValue: suggestedSet ? formatNumberInputValue(suggestedSet.reps) : '',
+        repsValue: suggestedSet
+          ? formatNumberInputValue(
+              isTimeBasedExercise
+                ? suggestedSet.durationSeconds ?? fallbackWorkAmount ?? 30
+                : suggestedSet.reps ?? fallbackWorkAmount ?? 1
+            )
+          : fallbackWorkAmount?.toString() ?? '',
         weightValue: suggestedSet
           ? formatNumberInputValue(suggestedSet.weight)
           : plannedExercise?.programExercise.targetWeight?.toString() ?? '',
@@ -209,9 +236,12 @@ export default function StartWorkoutScreen() {
         selectedPlannedExercise.programExercise.exerciseId
       )
     : 0;
+  const selectedTrackingMode =
+    selectedPlannedExercise?.programExercise.trackingMode ??
+    (editingSet?.durationSeconds !== undefined ? 'time' : 'reps');
+  const isTimeBasedExercise = selectedTrackingMode === 'time';
   const shouldShowPowerQualityPicker =
     selectedPlannedExercise?.programExercise.trainingGoal === 'power';
-  const canStartFirstProgramDay = activeProgram !== null && programDays.length > 0;
   const durationSeconds = useMemo(() => {
     if (!activeSession) {
       return 0;
@@ -220,13 +250,13 @@ export default function StartWorkoutScreen() {
     return Math.max(0, Math.floor((now - new Date(activeSession.startedAt).getTime()) / 1000));
   }, [activeSession, now]);
 
-  const parsedReps = parseWorkoutNumberInput(reps);
+  const parsedWorkAmount = parseWorkoutNumberInput(reps);
   const parsedWeight = parseWorkoutNumberInput(weight);
   const canSubmitSet =
     activeSession !== null &&
     (isEditingSet || selectedPlannedExercise !== null) &&
-    Number.isFinite(parsedReps) &&
-    parsedReps > 0 &&
+    Number.isFinite(parsedWorkAmount) &&
+    parsedWorkAmount > 0 &&
     Number.isFinite(parsedWeight) &&
     parsedWeight >= 0 &&
     (!shouldShowPowerQualityPicker || powerQuality !== null);
@@ -234,9 +264,9 @@ export default function StartWorkoutScreen() {
     isEditingSet
       ? selectedPlannedExercise
         ? shouldShowPowerQualityPicker
-          ? `${selectedPlannedExercise.exerciseName}: update reps, weight, or quality.`
-          : `${selectedPlannedExercise.exerciseName}: update reps or weight.`
-        : 'Update reps or weight.'
+          ? `${selectedPlannedExercise.exerciseName}: update target, weight, or quality.`
+          : `${selectedPlannedExercise.exerciseName}: update target or weight.`
+        : 'Update target or weight.'
       : selectedPlannedExercise
       ? `${selectedPlannedExercise.exerciseName}: ${selectedPlannedExercise.progressionSuggestion}`
       : 'Choose a planned exercise first.';
@@ -258,19 +288,6 @@ export default function StartWorkoutScreen() {
         delta,
         minimum: 0,
         value,
-      })
-    );
-  };
-
-  const handleStartFirstProgramDay = () => {
-    if (!activeProgram || programDays.length === 0) {
-      return;
-    }
-
-    dispatch(
-      startWorkoutSession({
-        programId: activeProgram.id,
-        workoutDayTemplateId: programDays[0].id,
       })
     );
   };
@@ -317,7 +334,7 @@ export default function StartWorkoutScreen() {
 
     setEditingSetId(set.id);
     setSelectedProgramExerciseId(inferredPlannedExercise?.programExercise.id ?? null);
-    setReps(set.reps.toString());
+    setReps((set.durationSeconds ?? set.reps ?? '').toString());
     setWeight(set.weight.toString());
     setPowerQuality(set.powerQuality ?? null);
   };
@@ -348,7 +365,9 @@ export default function StartWorkoutScreen() {
       dispatch(
         updateSet({
           setId: editingSet.id,
-          reps: parsedReps,
+          ...(isTimeBasedExercise
+            ? { durationSeconds: Math.round(parsedWorkAmount) }
+            : { reps: Math.round(parsedWorkAmount) }),
           weight: parsedWeight,
           powerQuality: shouldShowPowerQualityPicker ? powerQuality ?? undefined : undefined,
         })
@@ -372,7 +391,9 @@ export default function StartWorkoutScreen() {
       addSet({
         exerciseId: selectedPlannedExercise.programExercise.exerciseId,
         programExerciseId: selectedPlannedExercise.programExercise.id,
-        reps: parsedReps,
+        ...(isTimeBasedExercise
+          ? { durationSeconds: Math.round(parsedWorkAmount) }
+          : { reps: Math.round(parsedWorkAmount) }),
         weight: parsedWeight,
         powerQuality: shouldShowPowerQualityPicker ? powerQuality ?? undefined : undefined,
       })
@@ -452,15 +473,11 @@ export default function StartWorkoutScreen() {
           <View className="gap-3">
             <ThemedText type="title">Start Workout</ThemedText>
             <ThemedText className="opacity-70">
-              Start a day from your active program before logging sets.
+              Choose a workout from Home before logging sets.
             </ThemedText>
           </View>
 
-          <AppButton
-            title="Start Day 1"
-            disabled={!canStartFirstProgramDay}
-            onPress={handleStartFirstProgramDay}
-          />
+          <AppButton title="Back Home" onPress={() => router.replace('/' as Href)} />
         </View>
       </ThemedView>
     );
@@ -502,7 +519,9 @@ export default function StartWorkoutScreen() {
                   const isSelected =
                     plannedExercise.programExercise.id ===
                     selectedPlannedExercise?.programExercise.id;
-                  const targetText = `${plannedExercise.programExercise.targetSets} x ${plannedExercise.programExercise.targetRepMin}-${plannedExercise.programExercise.targetRepMax}`;
+                  const targetText = getPlannedExerciseTargetText(
+                    plannedExercise.programExercise
+                  );
 
                   return (
                     <AppButton
@@ -541,11 +560,13 @@ export default function StartWorkoutScreen() {
 
             <View className="flex-row gap-3">
               <View className="flex-1 gap-2">
-                <ThemedText type="defaultSemiBold">Reps</ThemedText>
+                <ThemedText type="defaultSemiBold">
+                  {isTimeBasedExercise ? 'Seconds' : 'Reps'}
+                </ThemedText>
                 <TextInput
                   className={inputClassName}
                   keyboardType="numeric"
-                  placeholder="10"
+                  placeholder={isTimeBasedExercise ? '30' : '10'}
                   placeholderTextColor="#8A9296"
                   value={reps}
                   onChangeText={setReps}
@@ -555,13 +576,13 @@ export default function StartWorkoutScreen() {
                     title="-"
                     variant="secondary"
                     className={compactButtonClassName}
-                    onPress={() => handleAdjustReps(-1)}
+                    onPress={() => handleAdjustReps(isTimeBasedExercise ? -5 : -1)}
                   />
                   <AppButton
                     title="+"
                     variant="secondary"
                     className={compactButtonClassName}
-                    onPress={() => handleAdjustReps(1)}
+                    onPress={() => handleAdjustReps(isTimeBasedExercise ? 5 : 1)}
                   />
                 </View>
               </View>
@@ -643,10 +664,13 @@ export default function StartWorkoutScreen() {
                     <View className="flex-row items-center justify-between gap-3">
                       <View className="flex-1 gap-1">
                         <ThemedText type="defaultSemiBold">
-                          Set {set.setNumber}: {plannedExercise?.exerciseName ?? 'Exercise'}
+                          Set {set.setNumber}:{' '}
+                          {plannedExercise?.exerciseName ??
+                            exercisesById[set.exerciseId]?.name ??
+                            'Exercise'}
                         </ThemedText>
                         <ThemedText className="opacity-70">
-                          {set.reps} reps x {set.weight} {set.unit}
+                          {getSetWorkLabel(set)} x {set.weight} {set.unit}
                         </ThemedText>
                         {set.powerQuality ? (
                           <ThemedText className="opacity-70">
@@ -654,7 +678,7 @@ export default function StartWorkoutScreen() {
                           </ThemedText>
                         ) : null}
                       </View>
-                      <ThemedText type="defaultSemiBold">{set.reps * set.weight}</ThemedText>
+                      <ThemedText type="defaultSemiBold">{getSetTotalLabel(set)}</ThemedText>
                     </View>
                     <View className="flex-row gap-3">
                       <AppButton
