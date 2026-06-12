@@ -9,10 +9,29 @@ export type ExerciseCategory =
 
 export type WeightUnit = 'kg' | 'lb' | 'bodyweight';
 
+export type TrainingGoal = 'strength' | 'hypertrophy' | 'power' | 'endurance';
+
+export type MuscleGroup =
+  | 'chest'
+  | 'back'
+  | 'shoulders'
+  | 'biceps'
+  | 'triceps'
+  | 'quads'
+  | 'hamstrings'
+  | 'glutes'
+  | 'core'
+  | 'full_body';
+
+export type PowerQuality = 'fast' | 'good' | 'slow' | 'failed';
+
+export type ProgramPhase = 'hypertrophy' | 'strength' | 'power' | 'deload';
+
 export type Exercise = {
   id: string;
   name: string;
   category?: ExerciseCategory;
+  muscleGroup?: MuscleGroup;
   defaultUnit: WeightUnit;
   notes?: string;
   createdAt: string;
@@ -25,6 +44,8 @@ export type WorkoutProgram = {
   description?: string;
   dayIds: string[];
   isActive: boolean;
+  phase?: ProgramPhase;
+  startDate?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -47,6 +68,7 @@ export type ProgramExercise = {
   targetSets: number;
   targetRepMin: number;
   targetRepMax: number;
+  trainingGoal?: TrainingGoal;
   targetWeight?: number;
   restSeconds?: number;
   progressionRuleId?: string;
@@ -75,6 +97,7 @@ export type WorkoutSet = {
   reps: number;
   weight: number;
   unit: WeightUnit;
+  powerQuality?: PowerQuality;
   completedAt: string;
   notes?: string;
 };
@@ -110,5 +133,17 @@ export type AddSetInput = {
   programExerciseId?: string;
   reps: number;
   weight: number;
+  powerQuality?: PowerQuality;
   notes?: string;
+};
+
+export type UpdateSetInput = {
+  setId: string;
+  reps: number;
+  weight: number;
+  powerQuality?: PowerQuality;
+};
+
+export type DeleteSetInput = {
+  setId: string;
 };

@@ -3,7 +3,9 @@ import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import { initialWorkoutState } from '@/features/workouts/seed-data';
 import type {
   AddSetInput,
+  DeleteSetInput,
   StartWorkoutSessionInput,
+  UpdateSetInput,
   WorkoutState,
 } from '@/types/workout';
 
@@ -63,10 +65,57 @@ export const workoutSlice = createSlice({
         reps: action.payload.reps,
         weight: action.payload.weight,
         unit: exercise.defaultUnit,
+        powerQuality: action.payload.powerQuality,
         completedAt: new Date().toISOString(),
         notes: action.payload.notes,
       };
       activeSession.setIds.push(setId);
+    },
+    updateSet(state, action: PayloadAction<UpdateSetInput>) {
+      const activeSession = state.activeWorkoutSessionId
+        ? state.workoutSessions[state.activeWorkoutSessionId]
+        : null;
+
+      if (!activeSession || !activeSession.setIds.includes(action.payload.setId)) {
+        return;
+      }
+
+      const set = state.workoutSets[action.payload.setId];
+
+      if (!set) {
+        return;
+      }
+
+      set.reps = action.payload.reps;
+      set.weight = action.payload.weight;
+      set.powerQuality = action.payload.powerQuality;
+    },
+    deleteSet(state, action: PayloadAction<DeleteSetInput>) {
+      const activeSession = state.activeWorkoutSessionId
+        ? state.workoutSessions[state.activeWorkoutSessionId]
+        : null;
+
+      if (!activeSession || !activeSession.setIds.includes(action.payload.setId)) {
+        return;
+      }
+
+      delete state.workoutSets[action.payload.setId];
+      activeSession.setIds = activeSession.setIds.filter((setId) => setId !== action.payload.setId);
+
+      const setCounts: Record<string, number> = {};
+
+      activeSession.setIds.forEach((setId) => {
+        const set = state.workoutSets[setId];
+
+        if (!set) {
+          return;
+        }
+
+        const setGroupId = set.programExerciseId ?? set.exerciseId;
+
+        setCounts[setGroupId] = (setCounts[setGroupId] ?? 0) + 1;
+        set.setNumber = setCounts[setGroupId];
+      });
     },
     clearCurrentWorkout(state) {
       if (state.activeWorkoutSessionId) {
@@ -99,7 +148,14 @@ export const workoutSlice = createSlice({
   },
 });
 
-export const { addSet, clearCurrentWorkout, finishCurrentWorkout, startWorkoutSession } =
+export const {
+  addSet,
+  clearCurrentWorkout,
+  deleteSet,
+  finishCurrentWorkout,
+  startWorkoutSession,
+  updateSet,
+} =
   workoutSlice.actions;
 
 export default workoutSlice.reducer;
