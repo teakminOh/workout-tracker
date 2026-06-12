@@ -1,7 +1,7 @@
+import type { ReactNode } from 'react';
 import { View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 
 type AnalyticsMetric = {
   label: string;
@@ -10,22 +10,33 @@ type AnalyticsMetric = {
 
 type WorkoutAnalyticsSummaryProps = {
   metrics: AnalyticsMetric[];
+  children?: ReactNode;
   className?: string;
 };
 
-export function WorkoutAnalyticsSummary({ metrics, className }: WorkoutAnalyticsSummaryProps) {
+export function WorkoutAnalyticsSummary({
+  metrics,
+  children,
+  className,
+}: WorkoutAnalyticsSummaryProps) {
   return (
-    <View className={['flex-row gap-3', className].filter(Boolean).join(' ')}>
-      {metrics.map((metric) => (
-        <ThemedView
-          key={metric.label}
-          lightColor="#FFFFFF"
-          darkColor="#263331"
-          className="flex-1 gap-1 rounded-lg p-4">
-          <ThemedText type="defaultSemiBold">{metric.value}</ThemedText>
-          <ThemedText className="text-sm opacity-70">{metric.label}</ThemedText>
-        </ThemedView>
-      ))}
+    <View
+      style={{ borderCurve: 'continuous' }}
+      className={['gap-4 rounded-10 bg-surface p-5', className].filter(Boolean).join(' ')}>
+      <View className="flex-row gap-2">
+        {metrics.map((metric) => (
+          <View key={metric.label} className="flex-1 gap-1">
+            <ThemedText
+              type="subtitle"
+              numberOfLines={1}
+              style={{ fontVariant: ['tabular-nums'] }}>
+              {metric.value}
+            </ThemedText>
+            <ThemedText type="label">{metric.label}</ThemedText>
+          </View>
+        ))}
+      </View>
+      {children}
     </View>
   );
 }

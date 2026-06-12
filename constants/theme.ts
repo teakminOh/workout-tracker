@@ -1,30 +1,49 @@
 /**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
+ * Single dark theme: warm charcoal surfaces, cream text, one orange accent.
+ * Depth comes from progressively lighter background shades (bg -> surface -> raised),
+ * not borders or shadows. Keep these values in sync with tailwind.config.js.
  */
 
 import { Platform } from 'react-native';
 
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
+export const Palette = {
+  /** Page background — deep warm charcoal */
+  bg: '#262421',
+  /** Cards and grouped content */
+  surface: '#302D29',
+  /** Inputs, secondary buttons, elements nested inside cards */
+  raised: '#3B3733',
+  /** Rare hairlines */
+  line: '#48433D',
+  /** Primary text — off-white cream, softer than pure white */
+  cream: '#EDE9E2',
+  /** Secondary text and idle icons */
+  muted: '#A8A199',
+  /** Placeholders and disabled text */
+  faint: '#736D64',
+  /** The one vibrant orange — primary actions, active states, progress */
+  accent: '#E8743B',
+  accentPressed: '#C95E2C',
+  /** Translucent orange tint for selected surfaces */
+  accentSoft: 'rgba(232, 116, 59, 0.14)',
+  /** Text/icons placed on solid accent backgrounds */
+  onAccent: '#fb9d51',
+  danger: '#D9655B',
+} as const;
 
+const themeColors = {
+  text: Palette.cream,
+  background: Palette.bg,
+  tint: Palette.accent,
+  icon: Palette.muted,
+  tabIconDefault: Palette.muted,
+  tabIconSelected: Palette.accent,
+};
+
+// The app is dark-only by design: both schemes resolve to the same dark palette.
 export const Colors = {
-  light: {
-    text: '#11181C',
-    background: '#fff',
-    tint: tintColorLight,
-    icon: '#687076',
-    tabIconDefault: '#687076',
-    tabIconSelected: tintColorLight,
-  },
-  dark: {
-    text: '#ECEDEE',
-    background: '#151718',
-    tint: tintColorDark,
-    icon: '#9BA1A6',
-    tabIconDefault: '#9BA1A6',
-    tabIconSelected: tintColorDark,
-  },
+  light: themeColors,
+  dark: themeColors,
 };
 
 export const Fonts = Platform.select({

@@ -1,11 +1,25 @@
+import { Stack, useRouter, type Href } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from 'react-native';
-import { useRouter, type Href } from 'expo-router';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  TextInput,
+  View,
+  type TextStyle,
+} from 'react-native';
+import Animated, { FadeInDown, FadeOut, LinearTransition, ZoomIn } from 'react-native-reanimated';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { AppButton } from '@/components/ui/app-button';
+import { useAppDialog } from '@/components/ui/app-dialog';
+import { Icon } from '@/components/ui/icon';
+import { IconButton } from '@/components/ui/icon-button';
+import { PressableScale } from '@/components/ui/pressable-scale';
+import { ProgressBar } from '@/components/ui/progress-bar';
 import { WorkoutAnalyticsSummary } from '@/components/workout/analytics-summary';
+import { Palette } from '@/constants/theme';
 import {
   selectActiveProgram,
   selectActiveSessionDay,
@@ -24,13 +38,21 @@ import {
   updateSet,
 } from '@/features/workouts/workout-slice';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import type { PowerQuality, ProgramExercise, WorkoutSet } from '@/types/workout';
+import type { PowerQuality, ProgramExercise, WeightUnit, WorkoutSet } from '@/types/workout';
 import { formatDuration, parseWorkoutNumberInput } from '@/utils/workout-formatters';
 
 const inputClassName =
-  'min-h-12 rounded-lg border border-[#D3DEE3] bg-white px-4 text-base text-[#11181C] dark:border-[#34413F] dark:bg-[#263331] dark:text-[#ECEDEE]';
+  'min-h-14 flex-1 rounded-10 bg-raised px-4 text-center text-cream';
 
-const compactButtonClassName = 'min-h-10 flex-1 px-2 py-2';
+const inputTextStyle: TextStyle = {
+  borderCurve: 'continuous',
+  fontSize: 22,
+  fontWeight: '600',
+  fontVariant: ['tabular-nums'],
+};
+
+const cardStyle = { borderCurve: 'continuous' } as const;
+
 const weightStep = 2.5;
 
 const powerQualityOptions: { label: string; value: PowerQuality }[] = [
@@ -65,6 +87,9 @@ const getSetWorkLabel = (set: WorkoutSet) =>
 const getSetTotalLabel = (set: WorkoutSet) =>
   set.durationSeconds !== undefined ? `${set.durationSeconds}s` : `${(set.reps ?? 0) * set.weight}`;
 
+const formatSetWeight = (weight: number, unit: WeightUnit) =>
+  unit === 'bodyweight' ? 'BW' : `${weight} ${unit}`;
+
 type CompletedWorkoutSummary = {
   name: string;
   programName: string;
@@ -98,6 +123,7 @@ const getAdjustedNumberInput = ({
 export default function StartWorkoutScreen() {
   const router = useRouter();
   const dispatch = useAppDispatch();
+  const showDialog = useAppDialog();
   const activeProgram = useAppSelector(selectActiveProgram);
   const activeSession = useAppSelector(selectActiveWorkoutSession);
   const activeDay = useAppSelector(selectActiveSessionDay);
@@ -250,6 +276,16 @@ export default function StartWorkoutScreen() {
     return Math.max(0, Math.floor((now - new Date(activeSession.startedAt).getTime()) / 1000));
   }, [activeSession, now]);
 
+  const lastLoggedSet = activeSets.length > 0 ? activeSets[activeSets.length - 1] : null;
+  const restSeconds = lastLoggedSet
+    ? Math.max(0, Math.floor((now - new Date(lastLoggedSet.completedAt).getTime()) / 1000))
+    : null;
+  const plannedTotalSets = plannedExercises.reduce(
+    (total, plannedExercise) => total + Math.max(0, plannedExercise.programExercise.targetSets),
+    0
+  );
+  const sessionProgress = plannedTotalSets > 0 ? totalSets / plannedTotalSets : 0;
+
   const parsedWorkAmount = parseWorkoutNumberInput(reps);
   const parsedWeight = parseWorkoutNumberInput(weight);
   const canSubmitSet =
@@ -260,16 +296,36 @@ export default function StartWorkoutScreen() {
     Number.isFinite(parsedWeight) &&
     parsedWeight >= 0 &&
     (!shouldShowPowerQualityPicker || powerQuality !== null);
-  const setFormDescription =
-    isEditingSet
-      ? selectedPlannedExercise
-        ? shouldShowPowerQualityPicker
-          ? `${selectedPlannedExercise.exerciseName}: update target, weight, or quality.`
-          : `${selectedPlannedExercise.exerciseName}: update target or weight.`
-        : 'Update target or weight.'
-      : selectedPlannedExercise
-      ? `${selectedPlannedExercise.exerciseName}: ${selectedPlannedExercise.progressionSuggestion}`
-      : 'Choose a planned exercise first.';
+
+  const logCardLabel = isEditingSet
+    ? `Edit set ${editingSet.setNumber}`
+    : selectedPlannedExercise
+      ? selectedLoggedSetCount < selectedPlannedExercise.programExercise.targetSets
+        ? `Set ${selectedLoggedSetCount + 1} of ${selectedPlannedExercise.programExercise.targetSets}`
+        : `Set ${selectedLoggedSetCount + 1}`
+      : 'Log set';
+  const logCardTitle = isEditingSet
+    ? exercisesById[editingSet.exerciseId]?.name ?? 'Exercise'
+    : selectedPlannedExercise?.exerciseName ?? 'No exercise selected';
+  const logCardCaption = isEditingSet
+    ? shouldShowPowerQualityPicker
+      ? 'Update target, weight, or quality.'
+      : 'Update target or weight.'
+    : selectedPlannedExercise
+      ? selectedPlannedExercise.progressionSuggestion
+      : 'Choose an exercise above to start logging.';
+
+  const weightLabel = (() => {
+    const unit = isEditingSet
+      ? editingSet.unit
+      : (selectedPlannedExercise?.unit as WeightUnit | undefined);
+
+    if (!unit) {
+      return 'Weight';
+    }
+
+    return unit === 'bodyweight' ? 'Weight (BW)' : `Weight (${unit})`;
+  })();
 
   const handleAdjustReps = (delta: number) => {
     setReps((value) =>
@@ -340,20 +396,24 @@ export default function StartWorkoutScreen() {
   };
 
   const handleDeleteSet = (setId: string) => {
-    Alert.alert('Delete set?', 'This removes the logged set from this workout.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => {
-          if (editingSetId === setId) {
-            handleCancelEdit();
-          }
+    showDialog({
+      title: 'Delete set?',
+      message: 'This removes the logged set from this workout.',
+      buttons: [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            if (editingSetId === setId) {
+              handleCancelEdit();
+            }
 
-          dispatch(deleteSet({ setId }));
+            dispatch(deleteSet({ setId }));
+          },
         },
-      },
-    ]);
+      ],
+    });
   };
 
   const handleSubmitSet = () => {
@@ -387,10 +447,13 @@ export default function StartWorkoutScreen() {
       return;
     }
 
+    const currentProgramExerciseId = selectedPlannedExercise.programExercise.id;
+    const nextLoggedSetCount = selectedLoggedSetCount + 1;
+
     dispatch(
       addSet({
         exerciseId: selectedPlannedExercise.programExercise.exerciseId,
-        programExerciseId: selectedPlannedExercise.programExercise.id,
+        programExerciseId: currentProgramExerciseId,
         ...(isTimeBasedExercise
           ? { durationSeconds: Math.round(parsedWorkAmount) }
           : { reps: Math.round(parsedWorkAmount) }),
@@ -398,7 +461,34 @@ export default function StartWorkoutScreen() {
         powerQuality: shouldShowPowerQualityPicker ? powerQuality ?? undefined : undefined,
       })
     );
-    setDraftSetValues(selectedPlannedExercise.programExercise.id, selectedLoggedSetCount + 1);
+
+    // Flow shortcut: once an exercise hits its target sets, jump to the next
+    // unfinished exercise with its suggested values prefilled.
+    if (nextLoggedSetCount >= selectedPlannedExercise.programExercise.targetSets) {
+      const currentIndex = plannedExercises.findIndex(
+        (plannedExercise) => plannedExercise.programExercise.id === currentProgramExerciseId
+      );
+      const candidates = [
+        ...plannedExercises.slice(currentIndex + 1),
+        ...plannedExercises.slice(0, Math.max(0, currentIndex)),
+      ];
+      const nextExercise = candidates.find(
+        (plannedExercise) =>
+          getLoggedSetCountForPlannedExercise(
+            plannedExercise.programExercise.id,
+            plannedExercise.programExercise.exerciseId
+          ) < plannedExercise.programExercise.targetSets
+      );
+
+      if (nextExercise) {
+        setSelectedProgramExerciseId(nextExercise.programExercise.id);
+        setDraftSetValues(nextExercise.programExercise.id);
+        setPowerQuality(null);
+        return;
+      }
+    }
+
+    setDraftSetValues(currentProgramExerciseId, nextLoggedSetCount);
     setPowerQuality(null);
   };
 
@@ -435,16 +525,28 @@ export default function StartWorkoutScreen() {
 
   if (completedSummary) {
     return (
-      <ThemedView className="flex-1 px-6 py-10">
-        <View className="flex-1 justify-center gap-6">
-          <View className="gap-3">
-            <ThemedText type="title">Workout Complete</ThemedText>
-            <ThemedText className="opacity-70">
-              {completedSummary.dayName
-                ? `${completedSummary.programName} - ${completedSummary.dayName}`
-                : completedSummary.name}
-            </ThemedText>
-          </View>
+      <ThemedView className="flex-1">
+        <Stack.Screen options={{ title: completedSummary.name }} />
+        <ScrollView
+          contentInsetAdjustmentBehavior="automatic"
+          contentContainerClassName="flex-grow justify-center gap-7 px-5 py-8">
+          <Animated.View entering={ZoomIn.springify().damping(14)}>
+            <View className="items-center gap-5">
+              <View
+                className="h-20 w-20 items-center justify-center rounded-full"
+                style={{ backgroundColor: Palette.accentSoft }}>
+                <Icon name="check" size={36} color={Palette.accent} />
+              </View>
+              <View className="items-center gap-1">
+                <ThemedText type="title">Workout Complete</ThemedText>
+                <ThemedText className="opacity-60">
+                  {completedSummary.dayName
+                    ? `${completedSummary.programName} · ${completedSummary.dayName}`
+                    : completedSummary.name}
+                </ThemedText>
+              </View>
+            </View>
+          </Animated.View>
 
           <WorkoutAnalyticsSummary
             metrics={[
@@ -461,18 +563,19 @@ export default function StartWorkoutScreen() {
               router.replace('/' as Href);
             }}
           />
-        </View>
+        </ScrollView>
       </ThemedView>
     );
   }
 
   if (!activeSession) {
     return (
-      <ThemedView className="flex-1 px-6 py-10">
-        <View className="flex-1 justify-center gap-6">
-          <View className="gap-3">
-            <ThemedText type="title">Start Workout</ThemedText>
-            <ThemedText className="opacity-70">
+      <ThemedView className="flex-1">
+        <Stack.Screen options={{ title: 'Workout' }} />
+        <View className="flex-1 justify-center gap-6 px-5 py-10">
+          <View className="gap-2">
+            <ThemedText type="title">No Active Workout</ThemedText>
+            <ThemedText className="opacity-60">
               Choose a workout from Home before logging sets.
             </ThemedText>
           </View>
@@ -485,216 +588,297 @@ export default function StartWorkoutScreen() {
 
   return (
     <ThemedView className="flex-1">
+      <Stack.Screen options={{ title: activeSession.name }} />
       <KeyboardAvoidingView
         className="flex-1"
         behavior={Platform.select({ ios: 'padding', default: undefined })}>
         <ScrollView
-          className="flex-1"
-          contentContainerClassName="gap-6 px-6 py-8"
+          contentInsetAdjustmentBehavior="automatic"
+          contentContainerClassName="gap-7 px-5 pb-12 pt-4"
           keyboardShouldPersistTaps="handled">
-          <View className="gap-2">
-            <ThemedText type="title">{activeSession.name}</ThemedText>
-            <ThemedText className="opacity-70">
-              {activeDay
-                ? `${activeProgram?.name ?? 'Program'} - ${activeDay.name}`
-                : 'Log your planned exercises.'}
-            </ThemedText>
-          </View>
+          <ThemedText className="opacity-60">
+            {activeDay
+              ? `${activeProgram?.name ?? 'Program'} · ${activeDay.name}`
+              : 'Log your planned exercises.'}
+          </ThemedText>
 
           <WorkoutAnalyticsSummary
             metrics={[
               { label: 'Sets', value: totalSets },
               { label: 'Volume', value: totalVolume },
               { label: 'Time', value: formatDuration(durationSeconds) },
-            ]}
-          />
+              { label: 'Rest', value: restSeconds !== null ? formatDuration(restSeconds) : '—' },
+            ]}>
+            {plannedTotalSets > 0 ? (
+              <View className="gap-2">
+                <ProgressBar progress={sessionProgress} />
+                <ThemedText type="label" style={{ alignSelf: 'flex-end' }}>
+                  {totalSets}/{plannedTotalSets} target sets
+                </ThemedText>
+              </View>
+            ) : null}
+          </WorkoutAnalyticsSummary>
 
-          <ThemedView lightColor="#F3FAF8" darkColor="#1D2826" className="gap-4 rounded-xl p-5">
-            <ThemedText type="subtitle">Planned Exercises</ThemedText>
-            <View className="gap-3">
-              {plannedExercises.length === 0 ? (
-                <ThemedText className="opacity-70">No planned exercises yet.</ThemedText>
-              ) : (
-                plannedExercises.map((plannedExercise) => {
-                  const isSelected =
-                    plannedExercise.programExercise.id ===
-                    selectedPlannedExercise?.programExercise.id;
-                  const targetText = getPlannedExerciseTargetText(
-                    plannedExercise.programExercise
-                  );
+          <View className="gap-3">
+            <ThemedText type="label">Exercises</ThemedText>
+            {plannedExercises.length === 0 ? (
+              <View style={cardStyle} className="rounded-10 bg-surface p-4">
+                <ThemedText className="opacity-60">No planned exercises yet.</ThemedText>
+              </View>
+            ) : (
+              plannedExercises.map((plannedExercise) => {
+                const isSelected =
+                  plannedExercise.programExercise.id ===
+                  selectedPlannedExercise?.programExercise.id;
+                const loggedCount = getLoggedSetCountForPlannedExercise(
+                  plannedExercise.programExercise.id,
+                  plannedExercise.programExercise.exerciseId
+                );
+                const targetCount = plannedExercise.programExercise.targetSets;
+                const isComplete = targetCount > 0 && loggedCount >= targetCount;
 
-                  return (
-                    <AppButton
-                      key={plannedExercise.programExercise.id}
-                      title={`${plannedExercise.exerciseName} - ${targetText}`}
-                      variant={isSelected ? 'primary' : 'secondary'}
-                      disabled={isEditingSet}
-                      onPress={() => handleSelectExercise(plannedExercise.programExercise.id)}
-                    />
-                  );
-                })
-              )}
-            </View>
-          </ThemedView>
+                return (
+                  <PressableScale
+                    key={plannedExercise.programExercise.id}
+                    accessibilityRole="button"
+                    disabled={isEditingSet}
+                    style={cardStyle}
+                    className={[
+                      'rounded-10 p-4',
+                      isSelected ? 'bg-accent-soft' : 'bg-surface',
+                      isEditingSet ? 'opacity-50' : undefined,
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    onPress={() => handleSelectExercise(plannedExercise.programExercise.id)}>
+                    <View className="flex-row items-center justify-between gap-3">
+                      <View className="flex-1 gap-0.5">
+                        <ThemedText
+                          type="defaultSemiBold"
+                          style={isSelected ? { color: Palette.accent } : undefined}>
+                          {plannedExercise.exerciseName}
+                        </ThemedText>
+                        <ThemedText className="text-[13px] leading-5 opacity-60">
+                          {getPlannedExerciseTargetText(plannedExercise.programExercise)}
+                        </ThemedText>
+                      </View>
+                      <View className="flex-row items-center gap-2">
+                        <ThemedText
+                          type="defaultSemiBold"
+                          style={{
+                            fontVariant: ['tabular-nums'],
+                            color: isComplete ? Palette.accent : Palette.muted,
+                          }}>
+                          {loggedCount}/{targetCount}
+                        </ThemedText>
+                        {isComplete ? (
+                          <Icon name="check-circle" size={18} color={Palette.accent} />
+                        ) : null}
+                      </View>
+                    </View>
+                  </PressableScale>
+                );
+              })
+            )}
+          </View>
 
-          <ThemedView lightColor="#F3FAF8" darkColor="#1D2826" className="gap-4 rounded-xl p-5">
-            <View className="gap-1">
-              <ThemedText type="subtitle">{isEditingSet ? 'Edit Set' : 'Add Set'}</ThemedText>
-              <ThemedText className="opacity-70">{setFormDescription}</ThemedText>
+          <View style={cardStyle} className="gap-4 rounded-10 bg-surface p-5">
+            <View className="flex-row items-start justify-between gap-3">
+              <View className="flex-1 gap-1">
+                <ThemedText type="label">{logCardLabel}</ThemedText>
+                <ThemedText type="subtitle">{logCardTitle}</ThemedText>
+                <ThemedText className="text-[13px] leading-5 opacity-60">
+                  {logCardCaption}
+                </ThemedText>
+              </View>
+              {isEditingSet ? (
+                <IconButton
+                  name="x"
+                  accessibilityLabel="Cancel edit"
+                  onPress={handleCancelEdit}
+                />
+              ) : null}
             </View>
 
             {!isEditingSet && selectedLastExerciseReference ? (
-              <View className="gap-1 border-l-2 border-[#0A7EA4] pl-3">
-                <ThemedText className="opacity-70">
-                  Last time ({selectedLastExerciseReference.dateLabel}):{' '}
+              <View style={cardStyle} className="gap-1 rounded-10 bg-raised p-3">
+                <ThemedText className="text-[13px] leading-5 opacity-60">
+                  Last ({selectedLastExerciseReference.dateLabel}):{' '}
                   {selectedLastExerciseReference.setsLabel}
                 </ThemedText>
-                <ThemedText className="opacity-70">
+                <ThemedText className="text-[13px] leading-5 opacity-60">
                   Best set: {selectedLastExerciseReference.bestSetLabel}
                 </ThemedText>
-                <ThemedText className="opacity-70">
-                  Suggestion: {selectedLastExerciseReference.suggestion}
+                <ThemedText
+                  className="text-[13px] leading-5"
+                  style={{ color: Palette.accent }}>
+                  {selectedLastExerciseReference.suggestion}
                 </ThemedText>
               </View>
             ) : null}
 
-            <View className="flex-row gap-3">
-              <View className="flex-1 gap-2">
-                <ThemedText type="defaultSemiBold">
-                  {isTimeBasedExercise ? 'Seconds' : 'Reps'}
-                </ThemedText>
+            <View className="gap-2">
+              <View className="flex-row items-center justify-between">
+                <ThemedText type="label">{isTimeBasedExercise ? 'Seconds' : 'Reps'}</ThemedText>
+                <ThemedText type="label">{isTimeBasedExercise ? '± 5' : '± 1'}</ThemedText>
+              </View>
+              <View className="flex-row items-center gap-2">
+                <IconButton
+                  name="minus"
+                  accessibilityLabel={isTimeBasedExercise ? 'Decrease seconds' : 'Decrease reps'}
+                  className="bg-raised"
+                  color={Palette.cream}
+                  onPress={() => handleAdjustReps(isTimeBasedExercise ? -5 : -1)}
+                />
                 <TextInput
                   className={inputClassName}
+                  style={inputTextStyle}
                   keyboardType="numeric"
+                  keyboardAppearance="dark"
+                  selectionColor={Palette.accent}
                   placeholder={isTimeBasedExercise ? '30' : '10'}
-                  placeholderTextColor="#8A9296"
+                  placeholderTextColor={Palette.faint}
                   value={reps}
                   onChangeText={setReps}
                 />
-                <View className="flex-row gap-2">
-                  <AppButton
-                    title="-"
-                    variant="secondary"
-                    className={compactButtonClassName}
-                    onPress={() => handleAdjustReps(isTimeBasedExercise ? -5 : -1)}
-                  />
-                  <AppButton
-                    title="+"
-                    variant="secondary"
-                    className={compactButtonClassName}
-                    onPress={() => handleAdjustReps(isTimeBasedExercise ? 5 : 1)}
-                  />
-                </View>
+                <IconButton
+                  name="plus"
+                  accessibilityLabel={isTimeBasedExercise ? 'Increase seconds' : 'Increase reps'}
+                  className="bg-raised"
+                  color={Palette.cream}
+                  onPress={() => handleAdjustReps(isTimeBasedExercise ? 5 : 1)}
+                />
               </View>
+            </View>
 
-              <View className="flex-1 gap-2">
-                <ThemedText type="defaultSemiBold">Weight</ThemedText>
+            <View className="gap-2">
+              <View className="flex-row items-center justify-between">
+                <ThemedText type="label">{weightLabel}</ThemedText>
+                <ThemedText type="label">± {weightStep}</ThemedText>
+              </View>
+              <View className="flex-row items-center gap-2">
+                <IconButton
+                  name="minus"
+                  accessibilityLabel="Decrease weight"
+                  className="bg-raised"
+                  color={Palette.cream}
+                  onPress={() => handleAdjustWeight(-weightStep)}
+                />
                 <TextInput
                   className={inputClassName}
+                  style={inputTextStyle}
                   keyboardType="decimal-pad"
+                  keyboardAppearance="dark"
+                  selectionColor={Palette.accent}
                   placeholder={
                     selectedPlannedExercise?.programExercise.targetWeight?.toString() ?? '0'
                   }
-                  placeholderTextColor="#8A9296"
+                  placeholderTextColor={Palette.faint}
                   value={weight}
                   onChangeText={setWeight}
                 />
-                <View className="flex-row gap-2">
-                  <AppButton
-                    title={`-${weightStep}kg`}
-                    variant="secondary"
-                    className={compactButtonClassName}
-                    onPress={() => handleAdjustWeight(-weightStep)}
-                  />
-                  <AppButton
-                    title={`+${weightStep}kg`}
-                    variant="secondary"
-                    className={compactButtonClassName}
-                    onPress={() => handleAdjustWeight(weightStep)}
-                  />
-                </View>
+                <IconButton
+                  name="plus"
+                  accessibilityLabel="Increase weight"
+                  className="bg-raised"
+                  color={Palette.cream}
+                  onPress={() => handleAdjustWeight(weightStep)}
+                />
               </View>
             </View>
 
             {shouldShowPowerQualityPicker ? (
               <View className="gap-2">
-                <ThemedText type="defaultSemiBold">Power Quality</ThemedText>
+                <ThemedText type="label">Power Quality</ThemedText>
                 <View className="flex-row flex-wrap gap-2">
-                  {powerQualityOptions.map((option) => (
-                    <AppButton
-                      key={option.value}
-                      title={option.label}
-                      variant={powerQuality === option.value ? 'primary' : 'secondary'}
-                      className="min-h-10 min-w-[46%] flex-1 py-2"
-                      onPress={() => setPowerQuality(option.value)}
-                    />
-                  ))}
+                  {powerQualityOptions.map((option) => {
+                    const isSelected = powerQuality === option.value;
+
+                    return (
+                      <PressableScale
+                        key={option.value}
+                        accessibilityRole="button"
+                        scaleTo={0.92}
+                        className={`rounded-full px-4 py-2 ${isSelected ? 'bg-accent' : 'bg-raised'}`}
+                        onPress={() => setPowerQuality(option.value)}>
+                        <ThemedText
+                          type="defaultSemiBold"
+                          style={{
+                            fontSize: 14,
+                            lineHeight: 20,
+                            color: isSelected ? Palette.onAccent : Palette.muted,
+                          }}>
+                          {option.label}
+                        </ThemedText>
+                      </PressableScale>
+                    );
+                  })}
                 </View>
               </View>
             ) : null}
 
             <AppButton
-              title={isEditingSet ? 'Save Changes' : 'Add Set'}
+              title={isEditingSet ? 'Save Changes' : 'Log Set'}
+              icon="check"
               disabled={!canSubmitSet}
               onPress={handleSubmitSet}
             />
-            {isEditingSet ? (
-              <AppButton title="Cancel Edit" variant="secondary" onPress={handleCancelEdit} />
-            ) : null}
-          </ThemedView>
+          </View>
 
           <View className="gap-3">
-            <ThemedText type="subtitle">Logged Sets</ThemedText>
+            <ThemedText type="label">Logged Sets</ThemedText>
             {activeSets.length === 0 ? (
-              <ThemedView lightColor="#F3FAF8" darkColor="#1D2826" className="rounded-lg p-4">
-                <ThemedText className="opacity-70">No sets yet.</ThemedText>
-              </ThemedView>
+              <View style={cardStyle} className="rounded-10 bg-surface p-4">
+                <ThemedText className="opacity-60">No sets yet.</ThemedText>
+              </View>
             ) : (
               activeSets.map((set) => {
                 const plannedExercise = plannedExercises.find(
                   (exercise) => exercise.programExercise.id === set.programExerciseId
                 );
+                const exerciseName =
+                  plannedExercise?.exerciseName ?? exercisesById[set.exerciseId]?.name ?? 'Exercise';
+                const qualitySuffix = set.powerQuality
+                  ? ` · ${powerQualityLabels[set.powerQuality]}`
+                  : '';
 
                 return (
-                  <ThemedView
+                  <Animated.View
                     key={set.id}
-                    lightColor="#F3FAF8"
-                    darkColor="#1D2826"
-                    className="gap-3 rounded-lg p-4">
-                    <View className="flex-row items-center justify-between gap-3">
-                      <View className="flex-1 gap-1">
+                    entering={FadeInDown.duration(240)}
+                    exiting={FadeOut.duration(150)}
+                    layout={LinearTransition.duration(200)}>
+                    <View
+                      style={cardStyle}
+                      className="flex-row items-center gap-1 rounded-10 bg-surface p-4">
+                      <View className="flex-1 gap-0.5">
                         <ThemedText type="defaultSemiBold">
-                          Set {set.setNumber}:{' '}
-                          {plannedExercise?.exerciseName ??
-                            exercisesById[set.exerciseId]?.name ??
-                            'Exercise'}
+                          Set {set.setNumber} · {exerciseName}
                         </ThemedText>
-                        <ThemedText className="opacity-70">
-                          {getSetWorkLabel(set)} x {set.weight} {set.unit}
+                        <ThemedText className="text-[13px] leading-5 opacity-60">
+                          {getSetWorkLabel(set)} × {formatSetWeight(set.weight, set.unit)}
+                          {qualitySuffix}
                         </ThemedText>
-                        {set.powerQuality ? (
-                          <ThemedText className="opacity-70">
-                            Quality: {powerQualityLabels[set.powerQuality]}
-                          </ThemedText>
-                        ) : null}
                       </View>
-                      <ThemedText type="defaultSemiBold">{getSetTotalLabel(set)}</ThemedText>
-                    </View>
-                    <View className="flex-row gap-3">
-                      <AppButton
-                        title="Edit"
-                        variant="secondary"
-                        className="min-h-10 flex-1 py-2"
+                      <ThemedText
+                        type="defaultSemiBold"
+                        style={{ fontVariant: ['tabular-nums'], color: Palette.muted }}>
+                        {getSetTotalLabel(set)}
+                      </ThemedText>
+                      <IconButton
+                        name="edit-2"
+                        size={16}
+                        accessibilityLabel={`Edit set ${set.setNumber} of ${exerciseName}`}
                         onPress={() => handleEditSet(set.id)}
                       />
-                      <AppButton
-                        title="Delete"
-                        variant="secondary"
-                        className="min-h-10 flex-1 py-2"
+                      <IconButton
+                        name="trash-2"
+                        size={16}
+                        accessibilityLabel={`Delete set ${set.setNumber} of ${exerciseName}`}
                         onPress={() => handleDeleteSet(set.id)}
                       />
                     </View>
-                  </ThemedView>
+                  </Animated.View>
                 );
               })
             )}
@@ -703,12 +887,14 @@ export default function StartWorkoutScreen() {
           <View className="gap-3">
             <AppButton
               title="Finish Workout"
+              icon="check-circle"
               disabled={isEditingSet}
               onPress={handleFinishWorkout}
             />
             <AppButton
               title="Clear Workout"
-              variant="secondary"
+              icon="trash-2"
+              variant="ghost"
               onPress={handleClearWorkout}
             />
           </View>

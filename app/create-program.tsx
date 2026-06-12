@@ -1,44 +1,31 @@
-import { useMemo, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
+import { useMemo, useState } from 'react';
+import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { AppButton } from '@/components/ui/app-button';
+import { AppTextInput } from '@/components/ui/app-text-input';
+import {
+    createWorkoutProgramDraftDay,
+    createWorkoutProgramDraftExercise,
+    getUpdatedWorkoutProgramExerciseDraft,
+    parseWorkoutProgramDraft,
+    type WorkoutProgramDayDraft,
+    type WorkoutProgramExerciseDraft,
+} from '@/features/workouts/workout-form-helpers';
 import { createWorkoutProgram } from '@/features/workouts/workout-slice';
 import { useAppDispatch } from '@/store/hooks';
 import type {
-  CreateWorkoutProgramDayInput,
-  CreateWorkoutProgramExerciseInput,
-  CreateWorkoutProgramInput,
-  ExerciseTrackingMode,
-  TrainingGoal,
-  WeightUnit,
+    CreateWorkoutProgramInput,
+    ExerciseTrackingMode,
+    TrainingGoal,
+    WeightUnit,
 } from '@/types/workout';
-import { parseWorkoutNumberInput } from '@/utils/workout-formatters';
-
-type DraftExercise = {
-  id: string;
-  name: string;
-  unit: WeightUnit;
-  trainingGoal: TrainingGoal;
-  trackingMode: ExerciseTrackingMode;
-  targetSets: string;
-  targetMin: string;
-  targetMax: string;
-  targetWeight: string;
-};
-
-type DraftDay = {
-  id: string;
-  name: string;
-  exercises: DraftExercise[];
-};
-
-const inputClassName =
-  'min-h-12 rounded-lg border border-[#D3DEE3] bg-white px-4 text-base text-[#11181C] dark:border-[#34413F] dark:bg-[#263331] dark:text-[#ECEDEE]';
 
 const compactButtonClassName = 'min-h-10 flex-1 px-2 py-2';
+
+const cardStyle = { borderCurve: 'continuous' } as const;
 
 const goalOptions: { label: string; value: TrainingGoal }[] = [
   { label: 'Strength', value: 'strength' },
@@ -57,178 +44,21 @@ const unitOptions: { label: string; value: WeightUnit }[] = [
   { label: 'BW', value: 'bodyweight' },
 ];
 
-const repsDefaultsByGoal: Record<TrainingGoal, { max: string; min: string; sets: string }> = {
-  hypertrophy: { max: '12', min: '8', sets: '3' },
-  power: { max: '3', min: '2', sets: '4' },
-  strength: { max: '5', min: '3', sets: '3' },
-};
-
-const createDraftId = (prefix: string) =>
-  `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-
-const createDraftExercise = (): DraftExercise => ({
-  id: createDraftId('draft-exercise'),
-  name: '',
-  unit: 'kg',
-  trainingGoal: 'strength',
-  trackingMode: 'reps',
-  targetSets: '3',
-  targetMin: '3',
-  targetMax: '5',
-  targetWeight: '',
-});
-
-const createDraftDay = (index: number): DraftDay => ({
-  id: createDraftId('draft-day'),
-  name: `Day ${index + 1}`,
-  exercises: [createDraftExercise()],
-});
-
-const parsePositiveNumber = (value: string) => {
-  const parsedValue = parseWorkoutNumberInput(value);
-
-  return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : null;
-};
-
-const parseNonNegativeNumber = (value: string) => {
-  if (value.trim().length === 0) {
-    return 0;
-  }
-
-  const parsedValue = parseWorkoutNumberInput(value);
-
-  return Number.isFinite(parsedValue) && parsedValue >= 0 ? parsedValue : null;
-};
-
-const isParsedExercise = (
-  exercise: CreateWorkoutProgramExerciseInput | null
-): exercise is CreateWorkoutProgramExerciseInput => exercise !== null;
-
-const isParsedDay = (
-  day: CreateWorkoutProgramDayInput | null
-): day is CreateWorkoutProgramDayInput => day !== null;
-
-const getUpdatedExerciseDefaults = (
-  exercise: DraftExercise,
-  updates: Partial<DraftExercise>
-): DraftExercise => {
-  const nextExercise = { ...exercise, ...updates };
-
-  if (updates.trainingGoal && nextExercise.trackingMode === 'reps') {
-    const defaults = repsDefaultsByGoal[updates.trainingGoal];
-
-    return {
-      ...nextExercise,
-      targetSets: defaults.sets,
-      targetMin: defaults.min,
-      targetMax: defaults.max,
-    };
-  }
-
-  if (updates.trackingMode === 'time') {
-    return {
-      ...nextExercise,
-      targetSets: '3',
-      targetMin: '30',
-      targetMax: '60',
-      targetWeight: nextExercise.targetWeight || '0',
-    };
-  }
-
-  if (updates.trackingMode === 'reps') {
-    const defaults = repsDefaultsByGoal[nextExercise.trainingGoal];
-
-    return {
-      ...nextExercise,
-      targetSets: defaults.sets,
-      targetMin: defaults.min,
-      targetMax: defaults.max,
-    };
-  }
-
-  return nextExercise;
-};
 
 export default function CreateProgramScreen() {
   const router = useRouter();
   const dispatch = useAppDispatch();
   const [programName, setProgramName] = useState('');
-  const [days, setDays] = useState<DraftDay[]>(() => [createDraftDay(0)]);
+  const [days, setDays] = useState<WorkoutProgramDayDraft[]>(() => [
+    createWorkoutProgramDraftDay(0),
+  ]);
 
-  const parsedProgram = useMemo<CreateWorkoutProgramInput | null>(() => {
-    const trimmedProgramName = programName.trim();
+  const parsedProgram = useMemo<CreateWorkoutProgramInput | null>(
+    () => parseWorkoutProgramDraft(programName, days),
+    [days, programName]
+  );
 
-    if (!trimmedProgramName || days.length === 0) {
-      return null;
-    }
-
-    const parsedDays: (CreateWorkoutProgramDayInput | null)[] = days.map((day, dayIndex) => {
-      const parsedExercises: (CreateWorkoutProgramExerciseInput | null)[] = day.exercises.map(
-        (exercise) => {
-          const targetSets = parsePositiveNumber(exercise.targetSets);
-          const targetMin = parsePositiveNumber(exercise.targetMin);
-          const targetMax = parsePositiveNumber(exercise.targetMax);
-          const targetWeight = parseNonNegativeNumber(exercise.targetWeight);
-
-          if (
-            !exercise.name.trim() ||
-            targetSets === null ||
-            targetMin === null ||
-            targetMax === null ||
-            targetWeight === null ||
-            targetMax < targetMin
-          ) {
-            return null;
-          }
-
-          return {
-            name: exercise.name.trim(),
-            unit: exercise.unit,
-            trainingGoal: exercise.trainingGoal,
-            trackingMode: exercise.trackingMode,
-            targetSets: Math.round(targetSets),
-            targetWeight,
-            ...(exercise.trackingMode === 'time'
-              ? {
-                  targetSecondsMin: Math.round(targetMin),
-                  targetSecondsMax: Math.round(targetMax),
-                }
-              : {
-                  targetRepMin: Math.round(targetMin),
-                  targetRepMax: Math.round(targetMax),
-                }),
-          };
-        }
-      );
-
-      const validExercises = parsedExercises.filter(isParsedExercise);
-
-      if (validExercises.length !== parsedExercises.length) {
-        return null;
-      }
-
-      return {
-        name: day.name.trim() || `Day ${dayIndex + 1}`,
-        exercises: validExercises,
-      };
-    });
-    const validDays = parsedDays.filter(isParsedDay);
-
-    if (
-      validDays.length !== parsedDays.length ||
-      validDays.some((day) => day.exercises.length === 0) ||
-      validDays.length === 0
-    ) {
-      return null;
-    }
-
-    return {
-      name: trimmedProgramName,
-      days: validDays,
-    };
-  }, [days, programName]);
-
-  const updateDay = (dayId: string, updates: Partial<DraftDay>) => {
+  const updateDay = (dayId: string, updates: Partial<WorkoutProgramDayDraft>) => {
     setDays((currentDays) =>
       currentDays.map((day) => (day.id === dayId ? { ...day, ...updates } : day))
     );
@@ -237,7 +67,7 @@ export default function CreateProgramScreen() {
   const updateExercise = (
     dayId: string,
     exerciseId: string,
-    updates: Partial<DraftExercise>
+    updates: Partial<WorkoutProgramExerciseDraft>
   ) => {
     setDays((currentDays) =>
       currentDays.map((day) =>
@@ -246,7 +76,7 @@ export default function CreateProgramScreen() {
               ...day,
               exercises: day.exercises.map((exercise) =>
                 exercise.id === exerciseId
-                  ? getUpdatedExerciseDefaults(exercise, updates)
+                  ? getUpdatedWorkoutProgramExerciseDraft(exercise, updates)
                   : exercise
               ),
             }
@@ -256,7 +86,7 @@ export default function CreateProgramScreen() {
   };
 
   const addDay = () => {
-    setDays((currentDays) => [...currentDays, createDraftDay(currentDays.length)]);
+    setDays((currentDays) => [...currentDays, createWorkoutProgramDraftDay(currentDays.length)]);
   };
 
   const removeDay = (dayId: string) => {
@@ -267,7 +97,10 @@ export default function CreateProgramScreen() {
     setDays((currentDays) =>
       currentDays.map((day) =>
         day.id === dayId
-          ? { ...day, exercises: [...day.exercises, createDraftExercise()] }
+          ? {
+              ...day,
+              exercises: [...day.exercises, createWorkoutProgramDraftExercise()],
+            }
           : day
       )
     );
@@ -302,14 +135,12 @@ export default function CreateProgramScreen() {
         behavior={Platform.select({ ios: 'padding', default: undefined })}>
         <ScrollView
           className="flex-1"
-          contentContainerClassName="gap-6 px-6 py-8"
+          contentContainerClassName="gap-7 px-5 py-8"
           keyboardShouldPersistTaps="handled">
           <View className="gap-2">
             <ThemedText type="title">Create Program</ThemedText>
-            <TextInput
-              className={inputClassName}
+            <AppTextInput
               placeholder="Program name"
-              placeholderTextColor="#8A9296"
               value={programName}
               onChangeText={setProgramName}
             />
@@ -317,11 +148,7 @@ export default function CreateProgramScreen() {
 
           <View className="gap-4">
             {days.map((day, dayIndex) => (
-              <ThemedView
-                key={day.id}
-                lightColor="#F3FAF8"
-                darkColor="#1D2826"
-                className="gap-4 rounded-xl p-5">
+              <View key={day.id} style={cardStyle} className="gap-4 rounded-10 bg-surface p-5">
                 <View className="gap-3">
                   <View className="flex-row items-center justify-between gap-3">
                     <ThemedText type="subtitle">Day {dayIndex + 1}</ThemedText>
@@ -333,10 +160,8 @@ export default function CreateProgramScreen() {
                       onPress={() => removeDay(day.id)}
                     />
                   </View>
-                  <TextInput
-                    className={inputClassName}
+                  <AppTextInput
                     placeholder="Day name"
-                    placeholderTextColor="#8A9296"
                     value={day.name}
                     onChangeText={(name) => updateDay(day.id, { name })}
                   />
@@ -346,7 +171,7 @@ export default function CreateProgramScreen() {
                   {day.exercises.map((exercise, exerciseIndex) => (
                     <View
                       key={exercise.id}
-                      className="gap-3 rounded-lg border border-[#D3DEE3] p-4 dark:border-[#34413F]">
+                      className="gap-3 rounded-10 bg-raised p-4">
                       <View className="flex-row items-center justify-between gap-3">
                         <ThemedText type="defaultSemiBold">
                           Exercise {exerciseIndex + 1}
@@ -360,16 +185,14 @@ export default function CreateProgramScreen() {
                         />
                       </View>
 
-                      <TextInput
-                        className={inputClassName}
+                      <AppTextInput
                         placeholder="Exercise name"
-                        placeholderTextColor="#8A9296"
                         value={exercise.name}
                         onChangeText={(name) => updateExercise(day.id, exercise.id, { name })}
                       />
 
                       <View className="gap-2">
-                        <ThemedText type="defaultSemiBold">Goal</ThemedText>
+                        <ThemedText type="label">Goal</ThemedText>
                         <View className="flex-row flex-wrap gap-2">
                           {goalOptions.map((option) => (
                             <AppButton
@@ -390,7 +213,7 @@ export default function CreateProgramScreen() {
                       </View>
 
                       <View className="gap-2">
-                        <ThemedText type="defaultSemiBold">Target</ThemedText>
+                        <ThemedText type="label">Target</ThemedText>
                         <View className="flex-row gap-2">
                           {trackingOptions.map((option) => (
                             <AppButton
@@ -411,7 +234,7 @@ export default function CreateProgramScreen() {
                       </View>
 
                       <View className="gap-2">
-                        <ThemedText type="defaultSemiBold">Unit</ThemedText>
+                        <ThemedText type="label">Unit</ThemedText>
                         <View className="flex-row gap-2">
                           {unitOptions.map((option) => (
                             <AppButton
@@ -434,11 +257,9 @@ export default function CreateProgramScreen() {
                       <View className="flex-row gap-3">
                         <View className="flex-1 gap-2">
                           <ThemedText type="defaultSemiBold">Sets</ThemedText>
-                          <TextInput
-                            className={inputClassName}
+                          <AppTextInput
                             keyboardType="numeric"
                             placeholder="3"
-                            placeholderTextColor="#8A9296"
                             value={exercise.targetSets}
                             onChangeText={(targetSets) =>
                               updateExercise(day.id, exercise.id, { targetSets })
@@ -449,11 +270,9 @@ export default function CreateProgramScreen() {
                           <ThemedText type="defaultSemiBold">
                             {exercise.trackingMode === 'time' ? 'Seconds min' : 'Reps min'}
                           </ThemedText>
-                          <TextInput
-                            className={inputClassName}
+                          <AppTextInput
                             keyboardType="numeric"
                             placeholder={exercise.trackingMode === 'time' ? '30' : '3'}
-                            placeholderTextColor="#8A9296"
                             value={exercise.targetMin}
                             onChangeText={(targetMin) =>
                               updateExercise(day.id, exercise.id, { targetMin })
@@ -467,11 +286,9 @@ export default function CreateProgramScreen() {
                           <ThemedText type="defaultSemiBold">
                             {exercise.trackingMode === 'time' ? 'Seconds max' : 'Reps max'}
                           </ThemedText>
-                          <TextInput
-                            className={inputClassName}
+                          <AppTextInput
                             keyboardType="numeric"
                             placeholder={exercise.trackingMode === 'time' ? '60' : '5'}
-                            placeholderTextColor="#8A9296"
                             value={exercise.targetMax}
                             onChangeText={(targetMax) =>
                               updateExercise(day.id, exercise.id, { targetMax })
@@ -480,11 +297,9 @@ export default function CreateProgramScreen() {
                         </View>
                         <View className="flex-1 gap-2">
                           <ThemedText type="defaultSemiBold">Weight</ThemedText>
-                          <TextInput
-                            className={inputClassName}
+                          <AppTextInput
                             keyboardType="decimal-pad"
                             placeholder="0"
-                            placeholderTextColor="#8A9296"
                             value={exercise.targetWeight}
                             onChangeText={(targetWeight) =>
                               updateExercise(day.id, exercise.id, { targetWeight })
@@ -501,7 +316,7 @@ export default function CreateProgramScreen() {
                     onPress={() => addExercise(day.id)}
                   />
                 </View>
-              </ThemedView>
+              </View>
             ))}
           </View>
 

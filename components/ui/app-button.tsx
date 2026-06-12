@@ -1,53 +1,62 @@
-import { Pressable, type PressableProps } from 'react-native';
+import type { PressableProps } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { Palette } from '@/constants/theme';
 
-type AppButtonVariant = 'primary' | 'secondary';
+import { Icon, type IconName } from './icon';
+import { PressableScale } from './pressable-scale';
 
-type AppButtonProps = PressableProps & {
+type AppButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
+
+type AppButtonProps = Omit<PressableProps, 'style'> & {
   title: string;
   variant?: AppButtonVariant;
+  icon?: IconName;
   className?: string;
 };
 
 const buttonClassNames: Record<AppButtonVariant, string> = {
-  primary: 'bg-[#0A7EA4]',
-  secondary: 'border border-[#0A7EA4] bg-transparent',
+  primary: 'bg-accent',
+  secondary: 'bg-raised',
+  ghost: 'bg-transparent',
+  danger: 'bg-danger',
 };
 
-const disabledClassNames: Record<AppButtonVariant, string> = {
-  primary: 'opacity-60',
-  secondary: 'border-[#A8B1B6] opacity-70',
+const textColors: Record<AppButtonVariant, string> = {
+  primary: Palette.onAccent,
+  secondary: Palette.cream,
+  ghost: Palette.muted,
+  danger: Palette.cream,
 };
 
 export function AppButton({
   title,
   variant = 'primary',
+  icon,
   disabled = false,
   className,
   ...pressableProps
 }: AppButtonProps) {
-  const isPrimary = variant === 'primary';
+  const textColor = textColors[variant];
 
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       disabled={disabled}
+      style={{ borderCurve: 'continuous' }}
       className={[
-        'min-h-12 items-center justify-center rounded-lg px-4 py-3',
+        'min-h-12 flex-row items-center justify-center gap-2 rounded-10 px-4 py-3',
         buttonClassNames[variant],
-        disabled ? disabledClassNames[variant] : undefined,
+        disabled ? 'opacity-40' : undefined,
         className,
       ]
         .filter(Boolean)
         .join(' ')}
       {...pressableProps}>
-      <ThemedText
-        lightColor={isPrimary ? '#FFFFFF' : disabled ? '#8A9296' : '#0A7EA4'}
-        darkColor={isPrimary ? '#FFFFFF' : disabled ? '#7A8589' : '#8AD7F8'}
-        type="defaultSemiBold">
+      {icon ? <Icon name={icon} size={18} color={textColor} /> : null}
+      <ThemedText type="defaultSemiBold" style={{ color: textColor }}>
         {title}
       </ThemedText>
-    </Pressable>
+    </PressableScale>
   );
 }

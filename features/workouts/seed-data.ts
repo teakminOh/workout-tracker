@@ -133,7 +133,7 @@ export const initialWorkoutState: WorkoutState = {
   progressionRules: {
     [defaultProgressionRuleId]: {
       id: defaultProgressionRuleId,
-      name: 'Double Progression 8-10',
+      name: 'Double Progression 5-10',
       type: 'doubleProgression',
       repMin: 5,
       repMax: 10,

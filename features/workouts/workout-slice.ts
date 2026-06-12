@@ -1,6 +1,14 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 
 import { initialWorkoutState } from '@/features/workouts/seed-data';
+import {
+  createId,
+  getProgramExerciseFields,
+  getVisibleProgramDays,
+  getVisibleProgramExercisesForDay,
+  hasLoggedSetsForProgramExercise,
+  isSameProgramExerciseInput,
+} from '@/features/workouts/workout-domain';
 import type {
   AddProgramExerciseInput,
   AddSetInput,
@@ -10,7 +18,6 @@ import type {
   CreateWorkoutProgramExerciseInput,
   CreateWorkoutProgramInput,
   DeleteSetInput,
-  ProgramExercise,
   ReorderProgramExercisesInput,
   ReorderWorkoutDaysInput,
   StartWorkoutSessionInput,
@@ -20,57 +27,6 @@ import type {
   UpdateWorkoutProgramInput,
   WorkoutState,
 } from '@/types/workout';
-
-const createId = (prefix: string) =>
-  `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-
-const getVisibleProgramExercisesForDay = (state: WorkoutState, workoutDayTemplateId: string) =>
-  Object.values(state.programExercises)
-    .filter(
-      (programExercise) =>
-        programExercise.workoutDayTemplateId === workoutDayTemplateId &&
-        !programExercise.isArchived
-    )
-    .sort((a, b) => a.order - b.order);
-
-const getVisibleProgramDays = (state: WorkoutState, programId: string) =>
-  Object.values(state.workoutDayTemplates)
-    .filter((day) => day.programId === programId && !day.isArchived)
-    .sort((a, b) => a.order - b.order);
-
-const hasLoggedSetsForProgramExercise = (state: WorkoutState, programExerciseId: string) =>
-  Object.values(state.workoutSets).some((set) => set.programExerciseId === programExerciseId);
-
-const getProgramExerciseFields = ({
-  exerciseId,
-  exerciseInput,
-  id,
-  order,
-  workoutDayTemplateId,
-}: {
-  exerciseId: string;
-  exerciseInput: CreateWorkoutProgramExerciseInput;
-  id: string;
-  order: number;
-  workoutDayTemplateId: string;
-}): ProgramExercise => {
-  const trackingMode = exerciseInput.trackingMode ?? 'reps';
-
-  return {
-    id,
-    workoutDayTemplateId,
-    exerciseId,
-    order,
-    targetSets: exerciseInput.targetSets,
-    trackingMode,
-    targetRepMin: trackingMode === 'reps' ? exerciseInput.targetRepMin : undefined,
-    targetRepMax: trackingMode === 'reps' ? exerciseInput.targetRepMax : undefined,
-    targetSecondsMin: trackingMode === 'time' ? exerciseInput.targetSecondsMin : undefined,
-    targetSecondsMax: trackingMode === 'time' ? exerciseInput.targetSecondsMax : undefined,
-    trainingGoal: exerciseInput.trainingGoal,
-    targetWeight: exerciseInput.targetWeight,
-  };
-};
 
 const createProgramExercise = ({
   exerciseInput,
@@ -128,32 +84,6 @@ const renumberProgramExercises = (
       programExercise.order = index + 1;
     }
   });
-};
-
-const isSameProgramExerciseInput = (
-  state: WorkoutState,
-  programExercise: ProgramExercise,
-  exerciseInput: CreateWorkoutProgramExerciseInput
-) => {
-  const exercise = state.exercises[programExercise.exerciseId];
-  const trackingMode = exerciseInput.trackingMode ?? 'reps';
-
-  return (
-    exercise?.name === exerciseInput.name.trim() &&
-    exercise?.defaultUnit === exerciseInput.unit &&
-    programExercise.trainingGoal === exerciseInput.trainingGoal &&
-    (programExercise.trackingMode ?? 'reps') === trackingMode &&
-    programExercise.targetSets === exerciseInput.targetSets &&
-    programExercise.targetWeight === exerciseInput.targetWeight &&
-    programExercise.targetRepMin ===
-      (trackingMode === 'reps' ? exerciseInput.targetRepMin : undefined) &&
-    programExercise.targetRepMax ===
-      (trackingMode === 'reps' ? exerciseInput.targetRepMax : undefined) &&
-    programExercise.targetSecondsMin ===
-      (trackingMode === 'time' ? exerciseInput.targetSecondsMin : undefined) &&
-    programExercise.targetSecondsMax ===
-      (trackingMode === 'time' ? exerciseInput.targetSecondsMax : undefined)
-  );
 };
 
 export const workoutSlice = createSlice({
@@ -235,19 +165,38 @@ export const workoutSlice = createSlice({
 
       const now = new Date().toISOString();
       const dayId = createId('day');
-      const order = getVisibleProgramDays(state, program.id).length + 1;
+      const visibleDays = getVisibleProgramDays(state, program.id);
+      const insertAfterIndex =
+        action.payload.insertAfterWorkoutDayTemplateId === null ||
+        action.payload.insertAfterWorkoutDayTemplateId === undefined
+          ? -1
+          : visibleDays.findIndex(
+              (day) => day.id === action.payload.insertAfterWorkoutDayTemplateId
+            );
+      const insertIndex = Math.max(0, insertAfterIndex + 1);
 
       program.dayIds.push(dayId);
       program.updatedAt = now;
       state.workoutDayTemplates[dayId] = {
         id: dayId,
         programId: program.id,
-        name: action.payload.name?.trim() || `Day ${order}`,
-        order,
+        name: action.payload.name?.trim() || `Day ${visibleDays.length + 1}`,
+        order: insertIndex + 1,
         exerciseIds: [],
         createdAt: now,
         updatedAt: now,
       };
+
+      // Splice the new day into position and resequence every visible day's order.
+      const orderedDayIds = visibleDays.map((day) => day.id);
+      orderedDayIds.splice(insertIndex, 0, dayId);
+      orderedDayIds.forEach((id, index) => {
+        const day = state.workoutDayTemplates[id];
+
+        if (day) {
+          day.order = index + 1;
+        }
+      });
     },
     updateWorkoutDay(state, action: PayloadAction<UpdateWorkoutDayInput>) {
       const day = state.workoutDayTemplates[action.payload.workoutDayTemplateId];
@@ -587,6 +536,11 @@ export const workoutSlice = createSlice({
       activeSession.endedAt = new Date().toISOString();
       state.activeWorkoutSessionId = null;
     },
+    restoreWorkoutState(_state, action: PayloadAction<WorkoutState>) {
+      // Replace the whole slice with a previously captured snapshot. Used to
+      // discard in-editor changes back to how the program was when opened.
+      return action.payload;
+    },
   },
 });
 
@@ -603,6 +557,7 @@ export const {
   hydrateWorkoutState,
   reorderProgramExercises,
   reorderWorkoutDays,
+  restoreWorkoutState,
   startWorkoutSession,
   updateProgramExercise,
   updateSet,

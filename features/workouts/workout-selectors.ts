@@ -1,13 +1,32 @@
 import { createSelector } from '@reduxjs/toolkit';
 
+import {
+  formatWeight,
+  formatWorkoutSet,
+  formatWorkoutSetsSummary,
+  getBestSet,
+  getDateLabel,
+  getDateRangeLabel,
+  getProgramForWeekCalculations,
+  getSessionSets,
+  getSessionStartedAtTime,
+  getSessionSummary,
+  getSetVolume,
+  getSetWorkAmount,
+  getSetWorkLabel,
+  getTargetMax,
+  getTargetMin,
+  getTargetRangeLabel,
+  getTrackingMode,
+} from '@/features/workouts/workout-selector-helpers';
 import type { RootState } from '@/store';
 import type {
   MuscleGroup,
   ProgramExercise,
   TrainingGoal,
   WeightUnit,
-  WorkoutProgram,
   WorkoutDayTemplate,
+  WorkoutProgram,
   WorkoutSession,
   WorkoutSet,
   WorkoutState,
@@ -87,8 +106,6 @@ export type LastExerciseReference = {
   suggestedSets: SuggestedWorkoutSet[];
 };
 
-type WorkoutSetSummaryItem = Pick<WorkoutSet, 'durationSeconds' | 'reps' | 'unit' | 'weight'>;
-
 const emptyProgramDays: WorkoutDayTemplate[] = [];
 const emptyWorkoutSets: WorkoutSet[] = [];
 const emptyPlannedExercises: PlannedExercise[] = [];
@@ -162,120 +179,6 @@ const getProgramExercisesForDay = (
     )
     .sort((a, b) => a.order - b.order);
 
-const getSessionStartedAtTime = (session: WorkoutSession) => new Date(session.startedAt).getTime();
-
-const getSessionDurationSeconds = (session: WorkoutSession) => {
-  if (!session.endedAt) {
-    return 0;
-  }
-
-  return Math.max(
-    0,
-    Math.floor((new Date(session.endedAt).getTime() - new Date(session.startedAt).getTime()) / 1000)
-  );
-};
-
-const getSessionSets = (session: WorkoutSession, workoutSets: WorkoutState['workoutSets']) =>
-  session.setIds
-    .map((setId) => workoutSets[setId])
-    .filter((set): set is WorkoutSet => Boolean(set));
-
-const getSessionSummary = (session: WorkoutSession, workoutSets: WorkoutState['workoutSets']) => {
-  const sets = getSessionSets(session, workoutSets);
-
-  return {
-    durationSeconds: getSessionDurationSeconds(session),
-    sets: sets.length,
-    volume: sets.reduce((total, set) => total + getSetVolume(set), 0),
-  };
-};
-
-const getDateLabel = (date: Date) =>
-  date.toLocaleDateString([], {
-    day: 'numeric',
-    month: 'short',
-    weekday: 'short',
-  });
-
-const getDateRangeLabel = (startDate: Date, endDate: Date) =>
-  `${getDateLabel(startDate)} - ${getDateLabel(endDate)}`;
-
-const formatWeight = (weight: number, unit: WorkoutSet['unit']) =>
-  unit === 'bodyweight' ? 'BW' : `${weight}${unit}`;
-
-const getTrackingMode = (programExercise: ProgramExercise) =>
-  programExercise.trackingMode ?? 'reps';
-
-const getTargetMin = (programExercise: ProgramExercise) =>
-  getTrackingMode(programExercise) === 'time'
-    ? programExercise.targetSecondsMin ?? 30
-    : programExercise.targetRepMin ?? 1;
-
-const getTargetMax = (programExercise: ProgramExercise) =>
-  getTrackingMode(programExercise) === 'time'
-    ? programExercise.targetSecondsMax ?? getTargetMin(programExercise)
-    : programExercise.targetRepMax ?? getTargetMin(programExercise);
-
-const getTargetUnitLabel = (programExercise: ProgramExercise) =>
-  getTrackingMode(programExercise) === 'time' ? 'sec' : 'reps';
-
-const getTargetRangeLabel = (programExercise: ProgramExercise) =>
-  `${programExercise.targetSets} x ${getTargetMin(programExercise)}-${getTargetMax(
-    programExercise
-  )} ${getTargetUnitLabel(programExercise)}`;
-
-const getSetWorkAmount = (set: WorkoutSetSummaryItem) => set.reps ?? set.durationSeconds ?? 0;
-
-const getSetWorkLabel = (set: WorkoutSetSummaryItem) =>
-  set.durationSeconds !== undefined ? `${set.durationSeconds}s` : `${set.reps ?? 0} reps`;
-
-const getSetVolume = (set: WorkoutSetSummaryItem) => (set.reps ?? 0) * set.weight;
-
-const formatWorkoutSet = (set: WorkoutSetSummaryItem) =>
-  `${formatWeight(set.weight, set.unit)} x ${getSetWorkLabel(set)}`;
-
-const formatWorkoutSetsSummary = (sets: WorkoutSetSummaryItem[]) => {
-  if (sets.length === 0) {
-    return '';
-  }
-
-  const firstSet = sets[0];
-  const sameWeightAndUnit = sets.every(
-    (set) => set.weight === firstSet.weight && set.unit === firstSet.unit
-  );
-
-  if (sameWeightAndUnit) {
-    return `${formatWeight(firstSet.weight, firstSet.unit)} x ${sets
-      .map(getSetWorkLabel)
-      .join(', ')}`;
-  }
-
-  return sets.map(formatWorkoutSet).join(', ');
-};
-
-const getBestSet = (sets: WorkoutSet[]) =>
-  [...sets].sort(
-    (a, b) =>
-      getSetVolume(b) - getSetVolume(a) ||
-      b.weight - a.weight ||
-      getSetWorkAmount(b) - getSetWorkAmount(a)
-  )[0];
-
-const getProgramForWeekCalculations = (
-  activeProgram: WorkoutProgram | null,
-  completedSessions: WorkoutSession[],
-  today: Date
-) => {
-  if (!activeProgram) {
-    return null;
-  }
-
-  return {
-    ...activeProgram,
-    startDate: activeProgram.startDate ?? completedSessions[0]?.startedAt ?? today.toISOString(),
-  };
-};
-
 const getPlannedExercisesForDay = ({
   activeSession,
   completedSessions,
@@ -320,6 +223,7 @@ const getPlannedExercisesForDay = ({
     };
   });
 };
+
 
 export const selectActiveWorkoutSession = createSelector(
   [selectActiveWorkoutSessionId, selectWorkoutSessions],

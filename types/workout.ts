@@ -169,6 +169,7 @@ export type UpdateWorkoutProgramInput = {
 export type AddWorkoutDayInput = {
   programId: string;
   name?: string;
+  insertAfterWorkoutDayTemplateId?: string | null;
 };
 
 export type UpdateWorkoutDayInput = {
