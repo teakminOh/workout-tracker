@@ -4,6 +4,7 @@ import { useRouter, type Href } from 'expo-router';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Icon } from '@/components/ui/icon';
+import { IconButton } from '@/components/ui/icon-button';
 import { PressableScale } from '@/components/ui/pressable-scale';
 import { Palette } from '@/constants/theme';
 import { selectProgramSummaries } from '@/features/workouts/workout-selectors';
@@ -21,8 +22,24 @@ export default function HomeScreen() {
         className="flex-1"
         contentContainerClassName="gap-7 px-5 pb-28 pt-8"
         showsVerticalScrollIndicator={false}>
-        <View className="gap-2">
+        <View className="flex-row items-center justify-between gap-3">
           <ThemedText type="title">Workout Tracker</ThemedText>
+          <View className="flex-row gap-2">
+            <IconButton
+              name="list"
+              accessibilityLabel="Exercise library"
+              className="bg-surface"
+              color={Palette.accent}
+              onPress={() => router.push('/exercises' as Href)}
+            />
+            <IconButton
+              name="bar-chart-2"
+              accessibilityLabel="View stats"
+              className="bg-surface"
+              color={Palette.accent}
+              onPress={() => router.push('/stats' as Href)}
+            />
+          </View>
         </View>
 
         <View className="gap-3">

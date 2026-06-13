@@ -7,6 +7,7 @@ import {
   getBestSet,
   getDateLabel,
   getDateRangeLabel,
+  getEstimatedOneRepMax,
   getProgramForWeekCalculations,
   getSessionSets,
   getSessionStartedAtTime,
@@ -21,6 +22,7 @@ import {
 } from '@/features/workouts/workout-selector-helpers';
 import type { RootState } from '@/store';
 import type {
+  ExerciseTrackingMode,
   MuscleGroup,
   ProgramExercise,
   TrainingGoal,
@@ -106,6 +108,70 @@ export type LastExerciseReference = {
   suggestedSets: SuggestedWorkoutSet[];
 };
 
+export type WorkoutActivityDay = {
+  dateKey: string;
+  count: number;
+  isFuture: boolean;
+};
+
+export type WorkoutActivity = {
+  currentStreak: number;
+  longestStreak: number;
+  totalWorkouts: number;
+  /** Trailing weeks of daily activity, oldest first, aligned to whole weeks (Sun start). */
+  days: WorkoutActivityDay[];
+};
+
+export type ExerciseLibraryItem = {
+  id: string;
+  name: string;
+  muscleGroup?: MuscleGroup;
+  defaultUnit: WeightUnit;
+  trainingGoal: TrainingGoal;
+  trackingMode: ExerciseTrackingMode;
+};
+
+export type PersonalRecordKind = 'weight' | 'e1RM' | 'volume' | 'reps';
+
+export type PersonalRecordEntry = {
+  kind: PersonalRecordKind;
+  value: number;
+  dateLabel: string;
+};
+
+export type ExercisePersonalRecords = {
+  exerciseId: string;
+  exerciseName: string;
+  unit: WeightUnit;
+  category: TrainingGoal;
+  records: PersonalRecordEntry[];
+  lastRecordTime: number;
+};
+
+export type ExerciseHistoryOption = {
+  exerciseId: string;
+  exerciseName: string;
+  sessionCount: number;
+  category: TrainingGoal;
+};
+
+export type ExerciseTrendPoint = {
+  dateKey: string;
+  dateLabel: string;
+  e1RM: number;
+  volume: number;
+  maxWeight: number;
+  maxReps: number;
+};
+
+export type SessionPersonalRecord = {
+  exerciseId: string;
+  exerciseName: string;
+  type: PersonalRecordKind;
+  value: number;
+  unit: WeightUnit;
+};
+
 const emptyProgramDays: WorkoutDayTemplate[] = [];
 const emptyWorkoutSets: WorkoutSet[] = [];
 const emptyPlannedExercises: PlannedExercise[] = [];
@@ -114,6 +180,11 @@ const emptyCompletedSessions: WorkoutSession[] = [];
 const emptyCompletedWorkouts: CompletedWorkoutSummary[] = [];
 const emptyProgressionSuggestions: ProgressionSuggestionSummary[] = [];
 const emptyLastExerciseReferences: LastExerciseReference[] = [];
+const emptyPersonalRecords: ExercisePersonalRecords[] = [];
+const emptyExerciseHistoryOptions: ExerciseHistoryOption[] = [];
+const emptyExerciseTrend: ExerciseTrendPoint[] = [];
+const emptySessionPersonalRecords: SessionPersonalRecord[] = [];
+const emptyExerciseLibrary: ExerciseLibraryItem[] = [];
 
 const minimumWeeklyWorkingSets = 10;
 const maximumWeeklyWorkingSets = 20;
@@ -787,8 +858,6 @@ const getFirstPlannedExerciseByGoal = (
     (plannedExercise) => plannedExercise.programExercise.trainingGoal === trainingGoal
   ) ?? null;
 
-const getEstimatedOneRepMax = (set: WorkoutSet) => set.weight * (1 + (set.reps ?? 0) / 30);
-
 const getTopStrengthSet = (sets: WorkoutSet[]) =>
   [...sets].sort((a, b) => getEstimatedOneRepMax(b) - getEstimatedOneRepMax(a))[0];
 
@@ -1302,3 +1371,340 @@ const hasConsecutiveFailedSessions = ({
     recentSessionSets.every((sets) => didMissBottomRepTarget(programExercise, sets))
   );
 };
+
+// ---------------------------------------------------------------------------
+// Progressive-overload analytics (Stats screen)
+// ---------------------------------------------------------------------------
+
+const ACTIVITY_WEEKS = 17;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+const selectExerciseIdParam = (_state: RootState, exerciseId: string) => exerciseId;
+
+/** All completed sessions across every program, oldest first. */
+export const selectAllCompletedSessions = createSelector(
+  [selectWorkoutSessions],
+  (workoutSessions) => {
+    const completed = Object.values(workoutSessions)
+      .filter((session) => session.status === 'completed')
+      .sort((a, b) => getSessionStartedAtTime(a) - getSessionStartedAtTime(b));
+
+    return completed.length > 0 ? completed : emptyCompletedSessions;
+  }
+);
+
+const countConsecutiveDaysBack = (start: Date, workoutDayKeys: Set<string>) => {
+  let streak = 0;
+  const cursor = new Date(start);
+
+  while (workoutDayKeys.has(toLocalDateKey(cursor))) {
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  return streak;
+};
+
+export const selectWorkoutActivity = createSelector(
+  [selectAllCompletedSessions],
+  (sessions): WorkoutActivity => {
+    const dayCounts = new Map<string, number>();
+
+    sessions.forEach((session) => {
+      const key = toLocalDateKey(new Date(session.startedAt));
+      dayCounts.set(key, (dayCounts.get(key) ?? 0) + 1);
+    });
+
+    const workoutDayKeys = new Set(dayCounts.keys());
+
+    // Current streak: count back from today, or from yesterday if today is a rest day.
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const currentStreak = workoutDayKeys.has(toLocalDateKey(today))
+      ? countConsecutiveDaysBack(today, workoutDayKeys)
+      : countConsecutiveDaysBack(yesterday, workoutDayKeys);
+
+    // Longest streak across all worked days.
+    const sortedDayTimes = [...workoutDayKeys]
+      .map((key) => getDateFromLocalKey(key).getTime())
+      .sort((a, b) => a - b);
+    let longestStreak = 0;
+    let run = 0;
+    let previousTime: number | null = null;
+    sortedDayTimes.forEach((time) => {
+      run = previousTime !== null && Math.round((time - previousTime) / MS_PER_DAY) === 1 ? run + 1 : 1;
+      longestStreak = Math.max(longestStreak, run);
+      previousTime = time;
+    });
+
+    // Calendar grid: whole weeks (Sun start) ending with the current week's Saturday.
+    const endOfWeek = new Date(today);
+    endOfWeek.setDate(endOfWeek.getDate() + (6 - endOfWeek.getDay()));
+    const gridStart = new Date(endOfWeek);
+    gridStart.setDate(gridStart.getDate() - (ACTIVITY_WEEKS * 7 - 1));
+
+    const days: WorkoutActivityDay[] = [];
+    const cursor = new Date(gridStart);
+    while (cursor <= endOfWeek) {
+      const dateKey = toLocalDateKey(cursor);
+      days.push({
+        dateKey,
+        count: dayCounts.get(dateKey) ?? 0,
+        isFuture: cursor.getTime() > today.getTime(),
+      });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    return {
+      currentStreak,
+      longestStreak,
+      totalWorkouts: sessions.length,
+      days,
+    };
+  }
+);
+
+/** Which PR kinds each analytics category surfaces. Untracked shows none. */
+const recordKindsByCategory: Record<TrainingGoal, PersonalRecordKind[]> = {
+  strength: ['weight', 'e1RM'],
+  hypertrophy: ['volume', 'reps'],
+  power: ['weight'],
+  untracked: [],
+};
+
+type MetricBests = Record<PersonalRecordKind, { value: number; time: number }>;
+type RecordAccumulator = { exerciseId: string; unit: WeightUnit; bests: MetricBests };
+
+const getSetMetrics = (set: WorkoutSet): Record<PersonalRecordKind, number> => ({
+  weight: set.weight,
+  e1RM: getEstimatedOneRepMax(set),
+  volume: getSetVolume(set),
+  reps: set.reps ?? 0,
+});
+
+const recordKinds: PersonalRecordKind[] = ['weight', 'e1RM', 'volume', 'reps'];
+
+export const selectExerciseLibrary = createSelector([selectExercises], (exercises) => {
+  const items = Object.values(exercises)
+    .filter((exercise) => !exercise.isArchived)
+    .map(
+      (exercise): ExerciseLibraryItem => ({
+        id: exercise.id,
+        name: exercise.name,
+        muscleGroup: exercise.muscleGroup,
+        defaultUnit: exercise.defaultUnit,
+        trainingGoal: exercise.trainingGoal ?? 'strength',
+        trackingMode: exercise.trackingMode ?? 'reps',
+      })
+    )
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return items.length > 0 ? items : emptyExerciseLibrary;
+});
+
+export const selectExerciseById = (state: RootState, exerciseId: string) =>
+  state.workout.exercises[exerciseId] ?? null;
+
+export const selectLastCreatedExerciseId = (state: RootState) =>
+  state.workout.lastCreatedExerciseId ?? null;
+
+export const selectPersonalRecords = createSelector(
+  [selectAllCompletedSessions, selectWorkoutSetsById, selectExercises],
+  (sessions, workoutSets, exercises): ExercisePersonalRecords[] => {
+    const byExercise = new Map<string, RecordAccumulator>();
+
+    sessions.forEach((session) => {
+      const time = getSessionStartedAtTime(session);
+
+      getSessionSets(session, workoutSets).forEach((set) => {
+        const metrics = getSetMetrics(set);
+        const current = byExercise.get(set.exerciseId);
+
+        if (!current) {
+          byExercise.set(set.exerciseId, {
+            exerciseId: set.exerciseId,
+            unit: set.unit,
+            bests: {
+              weight: { value: metrics.weight, time },
+              e1RM: { value: metrics.e1RM, time },
+              volume: { value: metrics.volume, time },
+              reps: { value: metrics.reps, time },
+            },
+          });
+          return;
+        }
+
+        recordKinds.forEach((kind) => {
+          if (metrics[kind] > current.bests[kind].value) {
+            current.bests[kind] = { value: metrics[kind], time };
+            if (kind === 'weight') {
+              current.unit = set.unit;
+            }
+          }
+        });
+      });
+    });
+
+    const result: ExercisePersonalRecords[] = [];
+    byExercise.forEach((acc) => {
+      const category = exercises[acc.exerciseId]?.trainingGoal ?? 'strength';
+      const kinds = recordKindsByCategory[category];
+
+      if (kinds.length === 0) {
+        return; // untracked — no analytics
+      }
+
+      result.push({
+        exerciseId: acc.exerciseId,
+        exerciseName: exercises[acc.exerciseId]?.name ?? 'Exercise',
+        unit: acc.unit,
+        category,
+        records: kinds.map((kind) => ({
+          kind,
+          value: Math.round(acc.bests[kind].value),
+          dateLabel: getDateLabel(new Date(acc.bests[kind].time)),
+        })),
+        lastRecordTime: Math.max(...kinds.map((kind) => acc.bests[kind].time)),
+      });
+    });
+
+    return result.length > 0
+      ? result.sort((a, b) => b.lastRecordTime - a.lastRecordTime)
+      : emptyPersonalRecords;
+  }
+);
+
+export const selectExercisesWithHistory = createSelector(
+  [selectAllCompletedSessions, selectWorkoutSetsById, selectExercises],
+  (sessions, workoutSets, exercises): ExerciseHistoryOption[] => {
+    const sessionCounts = new Map<string, number>();
+
+    sessions.forEach((session) => {
+      const exerciseIds = new Set(
+        getSessionSets(session, workoutSets).map((set) => set.exerciseId)
+      );
+      exerciseIds.forEach((exerciseId) => {
+        sessionCounts.set(exerciseId, (sessionCounts.get(exerciseId) ?? 0) + 1);
+      });
+    });
+
+    const options = [...sessionCounts.entries()]
+      .map(([exerciseId, sessionCount]) => ({
+        exerciseId,
+        exerciseName: exercises[exerciseId]?.name ?? 'Exercise',
+        sessionCount,
+        category: exercises[exerciseId]?.trainingGoal ?? 'strength',
+      }))
+      .filter((option) => option.category !== 'untracked')
+      .sort((a, b) => b.sessionCount - a.sessionCount);
+
+    return options.length > 0 ? options : emptyExerciseHistoryOptions;
+  }
+);
+
+export const selectExerciseTrend = createSelector(
+  [selectAllCompletedSessions, selectWorkoutSetsById, selectExerciseIdParam],
+  (sessions, workoutSets, exerciseId): ExerciseTrendPoint[] => {
+    const points: ExerciseTrendPoint[] = [];
+
+    sessions.forEach((session) => {
+      const sets = getSessionSets(session, workoutSets).filter(
+        (set) => set.exerciseId === exerciseId
+      );
+
+      if (sets.length === 0) {
+        return;
+      }
+
+      const date = new Date(session.startedAt);
+      points.push({
+        dateKey: toLocalDateKey(date),
+        dateLabel: getDateLabel(date),
+        e1RM: Math.round(Math.max(...sets.map(getEstimatedOneRepMax))),
+        volume: sets.reduce((total, set) => total + getSetVolume(set), 0),
+        maxWeight: Math.max(...sets.map((set) => set.weight)),
+        maxReps: Math.max(...sets.map((set) => set.reps ?? 0)),
+      });
+    });
+
+    return points.length > 0 ? points : emptyExerciseTrend;
+  }
+);
+
+export const selectActiveSessionPersonalRecords = createSelector(
+  [selectActiveWorkoutSession, selectWorkoutSessions, selectWorkoutSetsById, selectExercises],
+  (activeSession, workoutSessions, workoutSets, exercises): SessionPersonalRecord[] => {
+    if (!activeSession) {
+      return emptySessionPersonalRecords;
+    }
+
+    const activeSets = getSessionSets(activeSession, workoutSets);
+
+    if (activeSets.length === 0) {
+      return emptySessionPersonalRecords;
+    }
+
+    const emptyBests = (): Record<PersonalRecordKind, number> => ({
+      weight: 0,
+      e1RM: 0,
+      volume: 0,
+      reps: 0,
+    });
+
+    // Prior bests per exercise from all OTHER completed sessions.
+    const priorBests = new Map<string, Record<PersonalRecordKind, number>>();
+    Object.values(workoutSessions)
+      .filter((session) => session.status === 'completed' && session.id !== activeSession.id)
+      .forEach((session) => {
+        getSessionSets(session, workoutSets).forEach((set) => {
+          const metrics = getSetMetrics(set);
+          const prior = priorBests.get(set.exerciseId) ?? emptyBests();
+          recordKinds.forEach((kind) => {
+            prior[kind] = Math.max(prior[kind], metrics[kind]);
+          });
+          priorBests.set(set.exerciseId, prior);
+        });
+      });
+
+    // Best of this session per exercise.
+    const activeBests = new Map<string, Record<PersonalRecordKind, number> & { unit: WeightUnit }>();
+    activeSets.forEach((set) => {
+      const metrics = getSetMetrics(set);
+      const current = activeBests.get(set.exerciseId) ?? { ...emptyBests(), unit: set.unit };
+      recordKinds.forEach((kind) => {
+        current[kind] = Math.max(current[kind], metrics[kind]);
+      });
+      current.unit = set.unit;
+      activeBests.set(set.exerciseId, current);
+    });
+
+    const records: SessionPersonalRecord[] = [];
+    activeBests.forEach((best, exerciseId) => {
+      const prior = priorBests.get(exerciseId);
+
+      // Require prior history so the first time an exercise is logged isn't all-PRs.
+      if (!prior) {
+        return;
+      }
+
+      const category = exercises[exerciseId]?.trainingGoal ?? 'strength';
+      const exerciseName = exercises[exerciseId]?.name ?? 'Exercise';
+
+      recordKindsByCategory[category].forEach((kind) => {
+        if (best[kind] > prior[kind]) {
+          records.push({
+            exerciseId,
+            exerciseName,
+            type: kind,
+            value: Math.round(best[kind]),
+            unit: best.unit,
+          });
+        }
+      });
+    });
+
+    return records.length > 0 ? records : emptySessionPersonalRecords;
+  }
+);

@@ -15,12 +15,15 @@ import type {
   AddWorkoutDayInput,
   ArchiveProgramExerciseInput,
   ArchiveWorkoutDayInput,
+  CreateExerciseInput,
   CreateWorkoutProgramExerciseInput,
+  DeleteExerciseInput,
   CreateWorkoutProgramInput,
   DeleteSetInput,
   ReorderProgramExercisesInput,
   ReorderWorkoutDaysInput,
   StartWorkoutSessionInput,
+  UpdateExerciseInput,
   UpdateProgramExerciseInput,
   UpdateSetInput,
   UpdateWorkoutDayInput,
@@ -30,7 +33,6 @@ import type {
 
 const createProgramExercise = ({
   exerciseInput,
-  now,
   order,
   state,
   workoutDayTemplateId,
@@ -42,25 +44,18 @@ const createProgramExercise = ({
   workoutDayTemplateId: string;
 }) => {
   const day = state.workoutDayTemplates[workoutDayTemplateId];
-  const exerciseId = createId('exercise');
+  const exercise = state.exercises[exerciseInput.exerciseId];
   const programExerciseId = createId('program-exercise');
 
-  state.exercises[exerciseId] = {
-    id: exerciseId,
-    name: exerciseInput.name.trim(),
-    category: 'other',
-    defaultUnit: exerciseInput.unit,
-    createdAt: now,
-    updatedAt: now,
-  };
   state.programExercises[programExerciseId] = getProgramExerciseFields({
-    exerciseId,
     exerciseInput,
     id: programExerciseId,
     order,
+    trackingMode: exercise?.trackingMode ?? 'reps',
+    trainingGoal: exercise?.trainingGoal ?? 'strength',
     workoutDayTemplateId,
   });
-  day?.exerciseIds.push(exerciseId);
+  day?.exerciseIds.push(exerciseInput.exerciseId);
 
   return programExerciseId;
 };
@@ -326,20 +321,15 @@ export const workoutSlice = createSlice({
 
         renumberProgramExercises(state, programExercise.workoutDayTemplateId, nextOrder);
       } else {
-        const exercise = state.exercises[programExercise.exerciseId];
-
-        if (exercise) {
-          exercise.name = action.payload.exercise.name.trim();
-          exercise.defaultUnit = action.payload.exercise.unit;
-          exercise.updatedAt = now;
-        }
+        const exercise = state.exercises[action.payload.exercise.exerciseId];
 
         state.programExercises[programExercise.id] = {
           ...getProgramExerciseFields({
-            exerciseId: programExercise.exerciseId,
             exerciseInput: action.payload.exercise,
             id: programExercise.id,
             order: programExercise.order,
+            trackingMode: exercise?.trackingMode ?? 'reps',
+            trainingGoal: exercise?.trainingGoal ?? 'strength',
             workoutDayTemplateId: programExercise.workoutDayTemplateId,
           }),
           archivedAt: programExercise.archivedAt,
@@ -541,6 +531,84 @@ export const workoutSlice = createSlice({
       // discard in-editor changes back to how the program was when opened.
       return action.payload;
     },
+    createExercise(state, action: PayloadAction<CreateExerciseInput>) {
+      const now = new Date().toISOString();
+      const exerciseId = createId('exercise');
+
+      state.exercises[exerciseId] = {
+        id: exerciseId,
+        name: action.payload.name.trim(),
+        muscleGroup: action.payload.muscleGroup,
+        defaultUnit: action.payload.defaultUnit,
+        trainingGoal: action.payload.trainingGoal,
+        trackingMode: action.payload.trackingMode,
+        createdAt: now,
+        updatedAt: now,
+      };
+      state.lastCreatedExerciseId = exerciseId;
+    },
+    updateExercise(state, action: PayloadAction<UpdateExerciseInput>) {
+      const exercise = state.exercises[action.payload.exerciseId];
+
+      if (!exercise) {
+        return;
+      }
+
+      exercise.name = action.payload.name.trim();
+      exercise.muscleGroup = action.payload.muscleGroup;
+      exercise.defaultUnit = action.payload.defaultUnit;
+      exercise.trainingGoal = action.payload.trainingGoal;
+      exercise.trackingMode = action.payload.trackingMode;
+      exercise.updatedAt = new Date().toISOString();
+    },
+    deleteExercise(state, action: PayloadAction<DeleteExerciseInput>) {
+      const { exerciseId } = action.payload;
+
+      if (!state.exercises[exerciseId]) {
+        return;
+      }
+
+      // Permanently purge the exercise from the library, every program that
+      // uses it, and all logged history/analytics.
+      delete state.exercises[exerciseId];
+
+      const affectedDayIds = new Set<string>();
+      Object.values(state.programExercises).forEach((programExercise) => {
+        if (programExercise.exerciseId === exerciseId) {
+          affectedDayIds.add(programExercise.workoutDayTemplateId);
+          delete state.programExercises[programExercise.id];
+        }
+      });
+
+      const removedSetIds = new Set<string>();
+      Object.values(state.workoutSets).forEach((set) => {
+        if (set.exerciseId === exerciseId) {
+          removedSetIds.add(set.id);
+          delete state.workoutSets[set.id];
+        }
+      });
+
+      if (removedSetIds.size > 0) {
+        Object.values(state.workoutSessions).forEach((session) => {
+          if (session.setIds.some((setId) => removedSetIds.has(setId))) {
+            session.setIds = session.setIds.filter((setId) => !removedSetIds.has(setId));
+          }
+        });
+      }
+
+      affectedDayIds.forEach((dayId) => {
+        const day = state.workoutDayTemplates[dayId];
+
+        if (day) {
+          day.exerciseIds = day.exerciseIds.filter((id) => id !== exerciseId);
+        }
+
+        renumberProgramExercises(state, dayId);
+      });
+    },
+    clearLastCreatedExercise(state) {
+      state.lastCreatedExerciseId = null;
+    },
   },
 });
 
@@ -551,7 +619,10 @@ export const {
   archiveProgramExercise,
   archiveWorkoutDay,
   clearCurrentWorkout,
+  clearLastCreatedExercise,
+  createExercise,
   createWorkoutProgram,
+  deleteExercise,
   deleteSet,
   finishCurrentWorkout,
   hydrateWorkoutState,
@@ -559,6 +630,7 @@ export const {
   reorderWorkoutDays,
   restoreWorkoutState,
   startWorkoutSession,
+  updateExercise,
   updateProgramExercise,
   updateSet,
   updateWorkoutDay,

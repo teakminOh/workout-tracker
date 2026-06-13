@@ -2,6 +2,7 @@ import type {
     CreateWorkoutProgramDayInput,
     CreateWorkoutProgramExerciseInput,
     CreateWorkoutProgramInput,
+    Exercise,
     ExerciseTrackingMode,
     ProgramExercise,
     TrainingGoal,
@@ -11,7 +12,9 @@ import { parseWorkoutNumberInput } from '@/utils/workout-formatters';
 
 export type WorkoutProgramExerciseDraft = {
   id: string;
-  name: string;
+  /** Empty until an exercise is picked from the library. */
+  exerciseId: string;
+  exerciseName: string;
   unit: WeightUnit;
   trainingGoal: TrainingGoal;
   trackingMode: ExerciseTrackingMode;
@@ -31,6 +34,7 @@ const repsDefaultsByGoal: Record<TrainingGoal, { max: string; min: string; sets:
   hypertrophy: { max: '12', min: '8', sets: '3' },
   power: { max: '3', min: '2', sets: '4' },
   strength: { max: '5', min: '3', sets: '3' },
+  untracked: { max: '12', min: '8', sets: '3' },
 };
 
 const createWorkoutProgramDraftId = (prefix: string) =>
@@ -54,7 +58,8 @@ const parseNonNegativeNumber = (value: string) => {
 
 export const createWorkoutProgramDraftExercise = (): WorkoutProgramExerciseDraft => ({
   id: createWorkoutProgramDraftId('draft-exercise'),
-  name: '',
+  exerciseId: '',
+  exerciseName: '',
   unit: 'kg',
   trainingGoal: 'strength',
   trackingMode: 'reps',
@@ -63,6 +68,37 @@ export const createWorkoutProgramDraftExercise = (): WorkoutProgramExerciseDraft
   targetMax: '5',
   targetWeight: '',
 });
+
+/** Apply a picked library exercise to a draft: copy its context + seed target defaults. */
+export const applyExerciseToDraft = (
+  draft: WorkoutProgramExerciseDraft,
+  exercise: Exercise
+): WorkoutProgramExerciseDraft => {
+  const trainingGoal = exercise.trainingGoal ?? 'strength';
+  const trackingMode = exercise.trackingMode ?? 'reps';
+  const base: WorkoutProgramExerciseDraft = {
+    ...draft,
+    exerciseId: exercise.id,
+    exerciseName: exercise.name,
+    unit: exercise.defaultUnit,
+    trainingGoal,
+    trackingMode,
+  };
+
+  if (trackingMode === 'time') {
+    return {
+      ...base,
+      targetSets: '3',
+      targetMin: '30',
+      targetMax: '60',
+      targetWeight: base.targetWeight || '0',
+    };
+  }
+
+  const defaults = repsDefaultsByGoal[trainingGoal];
+
+  return { ...base, targetSets: defaults.sets, targetMin: defaults.min, targetMax: defaults.max };
+};
 
 export const createWorkoutProgramDraftDay = (index: number): WorkoutProgramDayDraft => ({
   id: createWorkoutProgramDraftId('draft-day'),
@@ -73,43 +109,7 @@ export const createWorkoutProgramDraftDay = (index: number): WorkoutProgramDayDr
 export const getUpdatedWorkoutProgramExerciseDraft = (
   draft: WorkoutProgramExerciseDraft,
   updates: Partial<WorkoutProgramExerciseDraft>
-): WorkoutProgramExerciseDraft => {
-  const nextDraft = { ...draft, ...updates };
-
-  if (updates.trainingGoal && nextDraft.trackingMode === 'reps') {
-    const defaults = repsDefaultsByGoal[updates.trainingGoal];
-
-    return {
-      ...nextDraft,
-      targetSets: defaults.sets,
-      targetMin: defaults.min,
-      targetMax: defaults.max,
-    };
-  }
-
-  if (updates.trackingMode === 'time') {
-    return {
-      ...nextDraft,
-      targetSets: '3',
-      targetMin: '30',
-      targetMax: '60',
-      targetWeight: nextDraft.targetWeight || '0',
-    };
-  }
-
-  if (updates.trackingMode === 'reps') {
-    const defaults = repsDefaultsByGoal[nextDraft.trainingGoal];
-
-    return {
-      ...nextDraft,
-      targetSets: defaults.sets,
-      targetMin: defaults.min,
-      targetMax: defaults.max,
-    };
-  }
-
-  return nextDraft;
-};
+): WorkoutProgramExerciseDraft => ({ ...draft, ...updates });
 
 export const getWorkoutProgramExerciseDraft = ({
   exerciseName,
@@ -121,7 +121,8 @@ export const getWorkoutProgramExerciseDraft = ({
   unit: WeightUnit;
 }): WorkoutProgramExerciseDraft => ({
   id: createWorkoutProgramDraftId('program-exercise-draft'),
-  name: exerciseName,
+  exerciseId: programExercise.exerciseId,
+  exerciseName,
   unit,
   trainingGoal: programExercise.trainingGoal ?? 'strength',
   trackingMode: programExercise.trackingMode ?? 'reps',
@@ -146,7 +147,7 @@ export const parseWorkoutProgramExerciseDraft = (
   const targetWeight = parseNonNegativeNumber(draft.targetWeight);
 
   if (
-    !draft.name.trim() ||
+    !draft.exerciseId ||
     targetSets === null ||
     targetMin === null ||
     targetMax === null ||
@@ -157,10 +158,7 @@ export const parseWorkoutProgramExerciseDraft = (
   }
 
   return {
-    name: draft.name.trim(),
-    unit: draft.unit,
-    trainingGoal: draft.trainingGoal,
-    trackingMode: draft.trackingMode,
+    exerciseId: draft.exerciseId,
     targetSets: Math.round(targetSets),
     targetWeight,
     ...(draft.trackingMode === 'time'

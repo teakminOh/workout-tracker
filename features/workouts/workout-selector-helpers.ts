@@ -74,6 +74,10 @@ export const getSetWorkLabel = (set: WorkoutSetSummaryItem) =>
 
 export const getSetVolume = (set: WorkoutSetSummaryItem) => (set.reps ?? 0) * set.weight;
 
+/** Epley estimated one-rep max from a logged set: weight x (1 + reps/30). */
+export const getEstimatedOneRepMax = (set: WorkoutSetSummaryItem) =>
+  set.weight * (1 + (set.reps ?? 0) / 30);
+
 export const formatWorkoutSet = (set: WorkoutSetSummaryItem) =>
   `${formatWeight(set.weight, set.unit)} x ${getSetWorkLabel(set)}`;
 

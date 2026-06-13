@@ -55,6 +55,9 @@ export default function RootLayout() {
           <Stack.Screen name="program/[programId]" options={{ title: 'Choose Workout' }} />
           <Stack.Screen name="program/[programId]/edit" options={{ title: 'Edit Program' }} />
           <Stack.Screen name="start-workout" options={{ title: 'Workout' }} />
+          <Stack.Screen name="stats" options={{ title: 'Stats' }} />
+          <Stack.Screen name="exercises" options={{ title: 'Exercises' }} />
+          <Stack.Screen name="create-exercise" options={{ title: 'Exercise' }} />
         </Stack>
         <StatusBar style="light" />
       </AppDialogProvider>

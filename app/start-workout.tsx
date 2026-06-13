@@ -24,11 +24,13 @@ import {
   selectActiveProgram,
   selectActiveSessionDay,
   selectActiveSessionExerciseReferences,
+  selectActiveSessionPersonalRecords,
   selectActiveSessionPlannedExercises,
   selectActiveSessionSets,
   selectActiveWorkoutSession,
   selectTotalSets,
   selectTotalVolume,
+  type SessionPersonalRecord,
 } from '@/features/workouts/workout-selectors';
 import {
   addSet,
@@ -97,7 +99,20 @@ type CompletedWorkoutSummary = {
   totalSets: number;
   totalVolume: number;
   durationSeconds: number;
+  personalRecords: SessionPersonalRecord[];
 };
+
+const personalRecordLabels: Record<SessionPersonalRecord['type'], string> = {
+  weight: 'Heaviest weight',
+  e1RM: 'Best e1RM',
+  volume: 'Best set volume',
+  reps: 'Most reps in a set',
+};
+
+const formatPersonalRecord = (record: SessionPersonalRecord) =>
+  record.type === 'volume' || record.type === 'reps'
+    ? `${record.value}`
+    : `${record.value}${record.unit === 'bodyweight' ? '' : record.unit}`;
 
 const formatNumberInputValue = (value: number) =>
   Number.isInteger(value) ? value.toString() : Number(value.toFixed(2)).toString();
@@ -132,6 +147,7 @@ export default function StartWorkoutScreen() {
   const activeSets = useAppSelector(selectActiveSessionSets);
   const totalSets = useAppSelector(selectTotalSets);
   const totalVolume = useAppSelector(selectTotalVolume);
+  const sessionPersonalRecords = useAppSelector(selectActiveSessionPersonalRecords);
   const exercisesById = useAppSelector((state) => state.workout.exercises);
 
   const [selectedProgramExerciseId, setSelectedProgramExerciseId] = useState<string | null>(null);
@@ -504,6 +520,7 @@ export default function StartWorkoutScreen() {
       totalSets,
       totalVolume,
       durationSeconds,
+      personalRecords: sessionPersonalRecords,
     });
     setSelectedProgramExerciseId(null);
     setEditingSetId(null);
@@ -547,6 +564,31 @@ export default function StartWorkoutScreen() {
               </View>
             </View>
           </Animated.View>
+
+          {completedSummary.personalRecords.length > 0 ? (
+            <Animated.View entering={ZoomIn.springify().damping(14)} className="gap-2">
+              <ThemedText type="label" style={{ color: Palette.accent }}>
+                New personal records
+              </ThemedText>
+              {completedSummary.personalRecords.map((record) => (
+                <View
+                  key={`${record.exerciseId}-${record.type}`}
+                  style={{ borderCurve: 'continuous', backgroundColor: Palette.accentSoft }}
+                  className="flex-row items-center gap-3 rounded-10 p-4">
+                  <Icon name="award" size={20} color={Palette.accent} />
+                  <View className="flex-1">
+                    <ThemedText type="defaultSemiBold">{record.exerciseName}</ThemedText>
+                    <ThemedText className="opacity-60">{personalRecordLabels[record.type]}</ThemedText>
+                  </View>
+                  <ThemedText
+                    type="subtitle"
+                    style={{ color: Palette.accent, fontVariant: ['tabular-nums'] }}>
+                    {formatPersonalRecord(record)}
+                  </ThemedText>
+                </View>
+              ))}
+            </Animated.View>
+          ) : null}
 
           <WorkoutAnalyticsSummary
             metrics={[

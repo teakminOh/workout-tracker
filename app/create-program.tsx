@@ -6,7 +6,10 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { AppButton } from '@/components/ui/app-button';
 import { AppTextInput } from '@/components/ui/app-text-input';
+import { ExercisePicker } from '@/components/workout/exercise-picker';
+import { ExercisePrescription } from '@/components/workout/exercise-prescription';
 import {
+    applyExerciseToDraft,
     createWorkoutProgramDraftDay,
     createWorkoutProgramDraftExercise,
     getUpdatedWorkoutProgramExerciseDraft,
@@ -15,43 +18,22 @@ import {
     type WorkoutProgramExerciseDraft,
 } from '@/features/workouts/workout-form-helpers';
 import { createWorkoutProgram } from '@/features/workouts/workout-slice';
-import { useAppDispatch } from '@/store/hooks';
-import type {
-    CreateWorkoutProgramInput,
-    ExerciseTrackingMode,
-    TrainingGoal,
-    WeightUnit,
-} from '@/types/workout';
-
-const compactButtonClassName = 'min-h-10 flex-1 px-2 py-2';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import type { CreateWorkoutProgramInput } from '@/types/workout';
 
 const cardStyle = { borderCurve: 'continuous' } as const;
 
-const goalOptions: { label: string; value: TrainingGoal }[] = [
-  { label: 'Strength', value: 'strength' },
-  { label: 'Hypertrophy', value: 'hypertrophy' },
-  { label: 'Power', value: 'power' },
-];
-
-const trackingOptions: { label: string; value: ExerciseTrackingMode }[] = [
-  { label: 'Reps', value: 'reps' },
-  { label: 'Time', value: 'time' },
-];
-
-const unitOptions: { label: string; value: WeightUnit }[] = [
-  { label: 'kg', value: 'kg' },
-  { label: 'lb', value: 'lb' },
-  { label: 'BW', value: 'bodyweight' },
-];
-
+type PickerTarget = { dayId: string; draftId: string };
 
 export default function CreateProgramScreen() {
   const router = useRouter();
   const dispatch = useAppDispatch();
+  const exercisesById = useAppSelector((state) => state.workout.exercises);
   const [programName, setProgramName] = useState('');
   const [days, setDays] = useState<WorkoutProgramDayDraft[]>(() => [
     createWorkoutProgramDraftDay(0),
   ]);
+  const [pickerTarget, setPickerTarget] = useState<PickerTarget | null>(null);
 
   const parsedProgram = useMemo<CreateWorkoutProgramInput | null>(
     () => parseWorkoutProgramDraft(programName, days),
@@ -66,7 +48,7 @@ export default function CreateProgramScreen() {
 
   const updateExercise = (
     dayId: string,
-    exerciseId: string,
+    exerciseDraftId: string,
     updates: Partial<WorkoutProgramExerciseDraft>
   ) => {
     setDays((currentDays) =>
@@ -75,7 +57,7 @@ export default function CreateProgramScreen() {
           ? {
               ...day,
               exercises: day.exercises.map((exercise) =>
-                exercise.id === exerciseId
+                exercise.id === exerciseDraftId
                   ? getUpdatedWorkoutProgramExerciseDraft(exercise, updates)
                   : exercise
               ),
@@ -83,6 +65,27 @@ export default function CreateProgramScreen() {
           : day
       )
     );
+  };
+
+  const handlePickedExercise = (exerciseId: string) => {
+    const exercise = exercisesById[exerciseId];
+
+    if (pickerTarget && exercise) {
+      setDays((currentDays) =>
+        currentDays.map((day) =>
+          day.id === pickerTarget.dayId
+            ? {
+                ...day,
+                exercises: day.exercises.map((draft) =>
+                  draft.id === pickerTarget.draftId ? applyExerciseToDraft(draft, exercise) : draft
+                ),
+              }
+            : day
+        )
+      );
+    }
+
+    setPickerTarget(null);
   };
 
   const addDay = () => {
@@ -97,22 +100,19 @@ export default function CreateProgramScreen() {
     setDays((currentDays) =>
       currentDays.map((day) =>
         day.id === dayId
-          ? {
-              ...day,
-              exercises: [...day.exercises, createWorkoutProgramDraftExercise()],
-            }
+          ? { ...day, exercises: [...day.exercises, createWorkoutProgramDraftExercise()] }
           : day
       )
     );
   };
 
-  const removeExercise = (dayId: string, exerciseId: string) => {
+  const removeExercise = (dayId: string, exerciseDraftId: string) => {
     setDays((currentDays) =>
       currentDays.map((day) =>
         day.id === dayId
           ? {
               ...day,
-              exercises: day.exercises.filter((exercise) => exercise.id !== exerciseId),
+              exercises: day.exercises.filter((exercise) => exercise.id !== exerciseDraftId),
             }
           : day
       )
@@ -169,13 +169,9 @@ export default function CreateProgramScreen() {
 
                 <View className="gap-4">
                   {day.exercises.map((exercise, exerciseIndex) => (
-                    <View
-                      key={exercise.id}
-                      className="gap-3 rounded-10 bg-raised p-4">
+                    <View key={exercise.id} className="gap-3 rounded-10 bg-raised p-4">
                       <View className="flex-row items-center justify-between gap-3">
-                        <ThemedText type="defaultSemiBold">
-                          Exercise {exerciseIndex + 1}
-                        </ThemedText>
+                        <ThemedText type="defaultSemiBold">Exercise {exerciseIndex + 1}</ThemedText>
                         <AppButton
                           title="Remove"
                           variant="secondary"
@@ -185,128 +181,13 @@ export default function CreateProgramScreen() {
                         />
                       </View>
 
-                      <AppTextInput
-                        placeholder="Exercise name"
-                        value={exercise.name}
-                        onChangeText={(name) => updateExercise(day.id, exercise.id, { name })}
+                      <ExercisePrescription
+                        draft={exercise}
+                        onChange={(updates) => updateExercise(day.id, exercise.id, updates)}
+                        onPickPress={() =>
+                          setPickerTarget({ dayId: day.id, draftId: exercise.id })
+                        }
                       />
-
-                      <View className="gap-2">
-                        <ThemedText type="label">Goal</ThemedText>
-                        <View className="flex-row flex-wrap gap-2">
-                          {goalOptions.map((option) => (
-                            <AppButton
-                              key={option.value}
-                              title={option.label}
-                              variant={
-                                exercise.trainingGoal === option.value ? 'primary' : 'secondary'
-                              }
-                              className="min-h-10 min-w-[30%] flex-1 py-2"
-                              onPress={() =>
-                                updateExercise(day.id, exercise.id, {
-                                  trainingGoal: option.value,
-                                })
-                              }
-                            />
-                          ))}
-                        </View>
-                      </View>
-
-                      <View className="gap-2">
-                        <ThemedText type="label">Target</ThemedText>
-                        <View className="flex-row gap-2">
-                          {trackingOptions.map((option) => (
-                            <AppButton
-                              key={option.value}
-                              title={option.label}
-                              variant={
-                                exercise.trackingMode === option.value ? 'primary' : 'secondary'
-                              }
-                              className={compactButtonClassName}
-                              onPress={() =>
-                                updateExercise(day.id, exercise.id, {
-                                  trackingMode: option.value,
-                                })
-                              }
-                            />
-                          ))}
-                        </View>
-                      </View>
-
-                      <View className="gap-2">
-                        <ThemedText type="label">Unit</ThemedText>
-                        <View className="flex-row gap-2">
-                          {unitOptions.map((option) => (
-                            <AppButton
-                              key={option.value}
-                              title={option.label}
-                              variant={exercise.unit === option.value ? 'primary' : 'secondary'}
-                              className={compactButtonClassName}
-                              onPress={() =>
-                                updateExercise(day.id, exercise.id, {
-                                  unit: option.value,
-                                  targetWeight:
-                                    option.value === 'bodyweight' ? '0' : exercise.targetWeight,
-                                })
-                              }
-                            />
-                          ))}
-                        </View>
-                      </View>
-
-                      <View className="flex-row gap-3">
-                        <View className="flex-1 gap-2">
-                          <ThemedText type="defaultSemiBold">Sets</ThemedText>
-                          <AppTextInput
-                            keyboardType="numeric"
-                            placeholder="3"
-                            value={exercise.targetSets}
-                            onChangeText={(targetSets) =>
-                              updateExercise(day.id, exercise.id, { targetSets })
-                            }
-                          />
-                        </View>
-                        <View className="flex-1 gap-2">
-                          <ThemedText type="defaultSemiBold">
-                            {exercise.trackingMode === 'time' ? 'Seconds min' : 'Reps min'}
-                          </ThemedText>
-                          <AppTextInput
-                            keyboardType="numeric"
-                            placeholder={exercise.trackingMode === 'time' ? '30' : '3'}
-                            value={exercise.targetMin}
-                            onChangeText={(targetMin) =>
-                              updateExercise(day.id, exercise.id, { targetMin })
-                            }
-                          />
-                        </View>
-                      </View>
-
-                      <View className="flex-row gap-3">
-                        <View className="flex-1 gap-2">
-                          <ThemedText type="defaultSemiBold">
-                            {exercise.trackingMode === 'time' ? 'Seconds max' : 'Reps max'}
-                          </ThemedText>
-                          <AppTextInput
-                            keyboardType="numeric"
-                            placeholder={exercise.trackingMode === 'time' ? '60' : '5'}
-                            value={exercise.targetMax}
-                            onChangeText={(targetMax) =>
-                              updateExercise(day.id, exercise.id, { targetMax })
-                            }
-                          />
-                        </View>
-                        <View className="flex-1 gap-2">
-                          <ThemedText type="defaultSemiBold">Weight</ThemedText>
-                          <AppTextInput
-                            keyboardType="decimal-pad"
-                            placeholder="0"
-                            value={exercise.targetWeight}
-                            onChangeText={(targetWeight) =>
-                              updateExercise(day.id, exercise.id, { targetWeight })
-                            }
-                          />
-                        </View>
-                      </View>
                     </View>
                   ))}
 
@@ -322,14 +203,16 @@ export default function CreateProgramScreen() {
 
           <View className="gap-3 pb-8">
             <AppButton title="Add Day" variant="secondary" onPress={addDay} />
-            <AppButton
-              title="Save Program"
-              disabled={!parsedProgram}
-              onPress={handleSaveProgram}
-            />
+            <AppButton title="Save Program" disabled={!parsedProgram} onPress={handleSaveProgram} />
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <ExercisePicker
+        visible={pickerTarget !== null}
+        onSelect={handlePickedExercise}
+        onClose={() => setPickerTarget(null)}
+      />
     </ThemedView>
   );
 }

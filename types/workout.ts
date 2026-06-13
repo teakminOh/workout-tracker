@@ -9,7 +9,7 @@ export type ExerciseCategory =
 
 export type WeightUnit = 'kg' | 'lb' | 'bodyweight';
 
-export type TrainingGoal = 'strength' | 'hypertrophy' | 'power';
+export type TrainingGoal = 'strength' | 'hypertrophy' | 'power' | 'untracked';
 
 export type ExerciseTrackingMode = 'reps' | 'time';
 
@@ -35,7 +35,13 @@ export type Exercise = {
   category?: ExerciseCategory;
   muscleGroup?: MuscleGroup;
   defaultUnit: WeightUnit;
+  /** Analytics category — what the Stats screen tracks for this exercise. */
+  trainingGoal?: TrainingGoal;
+  /** Whether the exercise is logged in reps or time. */
+  trackingMode?: ExerciseTrackingMode;
   notes?: string;
+  isArchived?: boolean;
+  archivedAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -131,6 +137,24 @@ export type WorkoutState = {
   workoutSets: Record<string, WorkoutSet>;
   progressionRules: Record<string, ProgressionRule>;
   activeWorkoutSessionId: string | null;
+  /** Set after creating a library exercise so the picker can auto-select it. */
+  lastCreatedExerciseId?: string | null;
+};
+
+export type CreateExerciseInput = {
+  name: string;
+  muscleGroup?: MuscleGroup;
+  defaultUnit: WeightUnit;
+  trainingGoal: TrainingGoal;
+  trackingMode: ExerciseTrackingMode;
+};
+
+export type UpdateExerciseInput = CreateExerciseInput & {
+  exerciseId: string;
+};
+
+export type DeleteExerciseInput = {
+  exerciseId: string;
 };
 
 export type StartWorkoutSessionInput = {
@@ -139,10 +163,8 @@ export type StartWorkoutSessionInput = {
 };
 
 export type CreateWorkoutProgramExerciseInput = {
-  name: string;
-  unit: WeightUnit;
-  trainingGoal: TrainingGoal;
-  trackingMode: ExerciseTrackingMode;
+  /** References an existing library exercise (goal/unit/mode come from it). */
+  exerciseId: string;
   targetSets: number;
   targetRepMin?: number;
   targetRepMax?: number;

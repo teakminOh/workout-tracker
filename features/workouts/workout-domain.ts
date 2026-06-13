@@ -1,6 +1,8 @@
 import type {
     CreateWorkoutProgramExerciseInput,
+    ExerciseTrackingMode,
     ProgramExercise,
+    TrainingGoal,
     WorkoutState,
 } from '@/types/workout';
 
@@ -30,48 +32,44 @@ export const hasLoggedSetsForProgramExercise = (
 ) => Object.values(state.workoutSets).some((set) => set.programExerciseId === programExerciseId);
 
 export const getProgramExerciseFields = ({
-  exerciseId,
   exerciseInput,
   id,
   order,
+  trackingMode,
+  trainingGoal,
   workoutDayTemplateId,
 }: {
-  exerciseId: string;
   exerciseInput: CreateWorkoutProgramExerciseInput;
   id: string;
   order: number;
+  trackingMode: ExerciseTrackingMode;
+  trainingGoal: TrainingGoal;
   workoutDayTemplateId: string;
-}): ProgramExercise => {
-  const trackingMode = exerciseInput.trackingMode ?? 'reps';
-
-  return {
-    id,
-    workoutDayTemplateId,
-    exerciseId,
-    order,
-    targetSets: exerciseInput.targetSets,
-    trackingMode,
-    targetRepMin: trackingMode === 'reps' ? exerciseInput.targetRepMin : undefined,
-    targetRepMax: trackingMode === 'reps' ? exerciseInput.targetRepMax : undefined,
-    targetSecondsMin: trackingMode === 'time' ? exerciseInput.targetSecondsMin : undefined,
-    targetSecondsMax: trackingMode === 'time' ? exerciseInput.targetSecondsMax : undefined,
-    trainingGoal: exerciseInput.trainingGoal,
-    targetWeight: exerciseInput.targetWeight,
-  };
-};
+}): ProgramExercise => ({
+  id,
+  workoutDayTemplateId,
+  exerciseId: exerciseInput.exerciseId,
+  order,
+  targetSets: exerciseInput.targetSets,
+  trackingMode,
+  targetRepMin: trackingMode === 'reps' ? exerciseInput.targetRepMin : undefined,
+  targetRepMax: trackingMode === 'reps' ? exerciseInput.targetRepMax : undefined,
+  targetSecondsMin: trackingMode === 'time' ? exerciseInput.targetSecondsMin : undefined,
+  targetSecondsMax: trackingMode === 'time' ? exerciseInput.targetSecondsMax : undefined,
+  trainingGoal,
+  targetWeight: exerciseInput.targetWeight,
+});
 
 export const isSameProgramExerciseInput = (
   state: WorkoutState,
   programExercise: ProgramExercise,
   exerciseInput: CreateWorkoutProgramExerciseInput
 ) => {
-  const exercise = state.exercises[programExercise.exerciseId];
-  const trackingMode = exerciseInput.trackingMode ?? 'reps';
+  const exercise = state.exercises[exerciseInput.exerciseId];
+  const trackingMode = exercise?.trackingMode ?? 'reps';
 
   return (
-    exercise?.name === exerciseInput.name.trim() &&
-    exercise?.defaultUnit === exerciseInput.unit &&
-    programExercise.trainingGoal === exerciseInput.trainingGoal &&
+    programExercise.exerciseId === exerciseInput.exerciseId &&
     (programExercise.trackingMode ?? 'reps') === trackingMode &&
     programExercise.targetSets === exerciseInput.targetSets &&
     programExercise.targetWeight === exerciseInput.targetWeight &&
