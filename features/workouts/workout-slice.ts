@@ -10,6 +10,7 @@ import {
   isSameProgramExerciseInput,
 } from '@/features/workouts/workout-domain';
 import type {
+  AddExerciseToSessionInput,
   AddProgramExerciseInput,
   AddSetInput,
   AddWorkoutDayInput,
@@ -20,16 +21,59 @@ import type {
   DeleteExerciseInput,
   CreateWorkoutProgramInput,
   DeleteSetInput,
+  DeleteWorkoutProgramInput,
+  RemoveExerciseFromSessionInput,
+  RepeatWorkoutSessionInput,
   ReorderProgramExercisesInput,
   ReorderWorkoutDaysInput,
   StartWorkoutSessionInput,
   UpdateExerciseInput,
+  UpdateProfileInput,
   UpdateProgramExerciseInput,
   UpdateSetInput,
   UpdateWorkoutDayInput,
   UpdateWorkoutProgramInput,
   WorkoutState,
 } from '@/types/workout';
+
+const renumberSessionSets = (state: WorkoutState, session: WorkoutState['workoutSessions'][string]) => {
+  const setCounts: Record<string, number> = {};
+
+  session.setIds.forEach((setId) => {
+    const set = state.workoutSets[setId];
+
+    if (!set) {
+      return;
+    }
+
+    const setGroupId = set.programExerciseId ?? set.exerciseId;
+
+    setCounts[setGroupId] = (setCounts[setGroupId] ?? 0) + 1;
+    set.setNumber = setCounts[setGroupId];
+  });
+};
+
+const getSessionExerciseIdsInOrder = (
+  session: WorkoutState['workoutSessions'][string],
+  state: WorkoutState
+) => {
+  const fromList = (session.exerciseIds ?? []).filter((exerciseId) => state.exercises[exerciseId]);
+  const ordered: string[] = [...fromList];
+  const seen = new Set(ordered);
+
+  // Fall back to (and union with) exercises that only appear in logged sets,
+  // so repeating a program session captures everything that was trained.
+  session.setIds.forEach((setId) => {
+    const exerciseId = state.workoutSets[setId]?.exerciseId;
+
+    if (exerciseId && state.exercises[exerciseId] && !seen.has(exerciseId)) {
+      seen.add(exerciseId);
+      ordered.push(exerciseId);
+    }
+  });
+
+  return ordered;
+};
 
 const createProgramExercise = ({
   exerciseInput,
@@ -150,6 +194,47 @@ export const workoutSlice = createSlice({
 
       program.name = action.payload.name.trim();
       program.updatedAt = new Date().toISOString();
+    },
+    deleteWorkoutProgram(state, action: PayloadAction<DeleteWorkoutProgramInput>) {
+      const program = state.programs[action.payload.programId];
+
+      if (!program) {
+        return;
+      }
+
+      // Remove the program template (days + their program exercises) but keep
+      // logged history. Completed sessions reference the gone IDs, yet the
+      // history/detail selectors read session.name + exercises directly.
+      const dayIds = new Set<string>(program.dayIds);
+
+      Object.values(state.workoutDayTemplates).forEach((day) => {
+        if (day.programId === program.id) {
+          dayIds.add(day.id);
+        }
+      });
+
+      Object.values(state.programExercises).forEach((programExercise) => {
+        if (dayIds.has(programExercise.workoutDayTemplateId)) {
+          delete state.programExercises[programExercise.id];
+        }
+      });
+
+      dayIds.forEach((dayId) => {
+        delete state.workoutDayTemplates[dayId];
+      });
+
+      delete state.programs[program.id];
+
+      // Discard any in-progress workout that belonged to this program.
+      const activeSession = state.activeWorkoutSessionId
+        ? state.workoutSessions[state.activeWorkoutSessionId]
+        : null;
+
+      if (activeSession && activeSession.programId === program.id) {
+        activeSession.status = 'discarded';
+        activeSession.endedAt = new Date().toISOString();
+        state.activeWorkoutSessionId = null;
+      }
     },
     addWorkoutDay(state, action: PayloadAction<AddWorkoutDayInput>) {
       const program = state.programs[action.payload.programId];
@@ -408,6 +493,98 @@ export const workoutSlice = createSlice({
       };
       state.activeWorkoutSessionId = sessionId;
     },
+    startFreestyleWorkoutSession(state) {
+      const currentActiveSession = state.activeWorkoutSessionId
+        ? state.workoutSessions[state.activeWorkoutSessionId]
+        : null;
+
+      if (currentActiveSession?.status === 'active') {
+        return;
+      }
+
+      const sessionId = createId('session');
+
+      state.workoutSessions[sessionId] = {
+        id: sessionId,
+        name: 'Quick Workout',
+        startedAt: new Date().toISOString(),
+        setIds: [],
+        exerciseIds: [],
+        status: 'active',
+      };
+      state.activeWorkoutSessionId = sessionId;
+    },
+    repeatWorkoutSession(state, action: PayloadAction<RepeatWorkoutSessionInput>) {
+      const currentActiveSession = state.activeWorkoutSessionId
+        ? state.workoutSessions[state.activeWorkoutSessionId]
+        : null;
+      const source = state.workoutSessions[action.payload.sessionId];
+
+      if (currentActiveSession?.status === 'active' || !source) {
+        return;
+      }
+
+      const sessionId = createId('session');
+
+      state.workoutSessions[sessionId] = {
+        id: sessionId,
+        name: source.name,
+        startedAt: new Date().toISOString(),
+        setIds: [],
+        exerciseIds: getSessionExerciseIdsInOrder(source, state),
+        status: 'active',
+      };
+      state.activeWorkoutSessionId = sessionId;
+    },
+    addExerciseToActiveSession(state, action: PayloadAction<AddExerciseToSessionInput>) {
+      const activeSession = state.activeWorkoutSessionId
+        ? state.workoutSessions[state.activeWorkoutSessionId]
+        : null;
+
+      if (!activeSession || !state.exercises[action.payload.exerciseId]) {
+        return;
+      }
+
+      if (!activeSession.exerciseIds) {
+        activeSession.exerciseIds = [];
+      }
+
+      if (!activeSession.exerciseIds.includes(action.payload.exerciseId)) {
+        activeSession.exerciseIds.push(action.payload.exerciseId);
+      }
+    },
+    removeExerciseFromActiveSession(
+      state,
+      action: PayloadAction<RemoveExerciseFromSessionInput>
+    ) {
+      const activeSession = state.activeWorkoutSessionId
+        ? state.workoutSessions[state.activeWorkoutSessionId]
+        : null;
+
+      if (!activeSession) {
+        return;
+      }
+
+      const { exerciseId } = action.payload;
+
+      activeSession.exerciseIds = (activeSession.exerciseIds ?? []).filter(
+        (id) => id !== exerciseId
+      );
+
+      const removedSetIds = new Set(
+        activeSession.setIds.filter((setId) => {
+          const set = state.workoutSets[setId];
+
+          return set?.exerciseId === exerciseId && !set.programExerciseId;
+        })
+      );
+
+      removedSetIds.forEach((setId) => {
+        delete state.workoutSets[setId];
+      });
+      activeSession.setIds = activeSession.setIds.filter((setId) => !removedSetIds.has(setId));
+      renumberSessionSets(state, activeSession);
+    },
     addSet(state, action: PayloadAction<AddSetInput>) {
       const activeSession = state.activeWorkoutSessionId
         ? state.workoutSessions[state.activeWorkoutSessionId]
@@ -483,20 +660,7 @@ export const workoutSlice = createSlice({
       delete state.workoutSets[action.payload.setId];
       activeSession.setIds = activeSession.setIds.filter((setId) => setId !== action.payload.setId);
 
-      const setCounts: Record<string, number> = {};
-
-      activeSession.setIds.forEach((setId) => {
-        const set = state.workoutSets[setId];
-
-        if (!set) {
-          return;
-        }
-
-        const setGroupId = set.programExerciseId ?? set.exerciseId;
-
-        setCounts[setGroupId] = (setCounts[setGroupId] ?? 0) + 1;
-        set.setNumber = setCounts[setGroupId];
-      });
+      renumberSessionSets(state, activeSession);
     },
     clearCurrentWorkout(state) {
       if (state.activeWorkoutSessionId) {
@@ -538,7 +702,7 @@ export const workoutSlice = createSlice({
       state.exercises[exerciseId] = {
         id: exerciseId,
         name: action.payload.name.trim(),
-        muscleGroup: action.payload.muscleGroup,
+        muscleGroups: action.payload.muscleGroups,
         defaultUnit: action.payload.defaultUnit,
         trainingGoal: action.payload.trainingGoal,
         trackingMode: action.payload.trackingMode,
@@ -555,7 +719,7 @@ export const workoutSlice = createSlice({
       }
 
       exercise.name = action.payload.name.trim();
-      exercise.muscleGroup = action.payload.muscleGroup;
+      exercise.muscleGroups = action.payload.muscleGroups;
       exercise.defaultUnit = action.payload.defaultUnit;
       exercise.trainingGoal = action.payload.trainingGoal;
       exercise.trackingMode = action.payload.trackingMode;
@@ -609,10 +773,17 @@ export const workoutSlice = createSlice({
     clearLastCreatedExercise(state) {
       state.lastCreatedExerciseId = null;
     },
+    updateProfile(state, action: PayloadAction<UpdateProfileInput>) {
+      state.profile = {
+        ...state.profile,
+        ...action.payload,
+      };
+    },
   },
 });
 
 export const {
+  addExerciseToActiveSession,
   addProgramExercise,
   addSet,
   addWorkoutDay,
@@ -624,13 +795,18 @@ export const {
   createWorkoutProgram,
   deleteExercise,
   deleteSet,
+  deleteWorkoutProgram,
   finishCurrentWorkout,
   hydrateWorkoutState,
+  removeExerciseFromActiveSession,
+  repeatWorkoutSession,
   reorderProgramExercises,
   reorderWorkoutDays,
   restoreWorkoutState,
+  startFreestyleWorkoutSession,
   startWorkoutSession,
   updateExercise,
+  updateProfile,
   updateProgramExercise,
   updateSet,
   updateWorkoutDay,

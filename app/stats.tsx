@@ -9,12 +9,15 @@ import { ThemedView } from '@/components/themed-view';
 import { AppButton } from '@/components/ui/app-button';
 import { Icon } from '@/components/ui/icon';
 import { PressableScale } from '@/components/ui/pressable-scale';
+import { AchievementBadge } from '@/components/workout/achievement-badge';
 import { WorkoutAnalyticsSummary } from '@/components/workout/analytics-summary';
 import { Palette } from '@/constants/theme';
 import {
+  selectAchievements,
   selectExerciseTrend,
   selectExercisesWithHistory,
   selectPersonalRecords,
+  selectStrengthProfile,
   selectWorkoutActivity,
   type ExercisePersonalRecords,
   type ExerciseTrendPoint,
@@ -55,6 +58,14 @@ function chunkWeeks<T>(items: T[]): T[][] {
     weeks.push(items.slice(i, i + 7));
   }
   return weeks;
+}
+
+function chunkPairs<T>(items: T[]): T[][] {
+  const pairs: T[][] = [];
+  for (let i = 0; i < items.length; i += 2) {
+    pairs.push(items.slice(i, i + 2));
+  }
+  return pairs;
 }
 
 function squareColor(count: number, isFuture: boolean) {
@@ -142,6 +153,8 @@ export default function StatsScreen() {
   const activity = useAppSelector(selectWorkoutActivity);
   const records = useAppSelector(selectPersonalRecords);
   const exerciseOptions = useAppSelector(selectExercisesWithHistory);
+  const strength = useAppSelector(selectStrengthProfile);
+  const achievements = useAppSelector(selectAchievements);
   const { width } = useWindowDimensions();
 
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
@@ -204,6 +217,61 @@ export default function StatsScreen() {
             { label: 'Workouts', value: activity.totalWorkouts },
           ]}
         />
+
+        {/* Strength level */}
+        <View className="gap-3">
+          <View className="flex-row items-center justify-between gap-3">
+            <ThemedText type="label">Strength level</ThemedText>
+            {strength.title ? (
+              <ThemedText type="defaultSemiBold" style={{ color: Palette.accent }}>
+                {strength.title}
+              </ThemedText>
+            ) : null}
+          </View>
+          {!strength.isComplete ? (
+            <View style={cardStyle} className="gap-3 rounded-10 bg-surface p-5">
+              <ThemedText className="opacity-60">
+                Add your bodyweight and sex to see how your main lifts rank against
+                population strength standards.
+              </ThemedText>
+              <AppButton
+                title="Set Up Profile"
+                icon="user"
+                onPress={() => router.push('/profile' as Href)}
+              />
+            </View>
+          ) : strength.levels.length === 0 ? (
+            <View style={cardStyle} className="rounded-10 bg-surface p-5">
+              <ThemedText className="opacity-60">
+                Log a main barbell lift (bench, squat, deadlift, overhead press, or row)
+                to see your level.
+              </ThemedText>
+            </View>
+          ) : (
+            strength.levels.map((level) => (
+              <View
+                key={level.exerciseId}
+                style={cardStyle}
+                className="flex-row items-center justify-between gap-3 rounded-10 bg-surface p-5">
+                <View className="flex-1 gap-1">
+                  <ThemedText type="defaultSemiBold">{level.exerciseName}</ThemedText>
+                  <ThemedText className="opacity-60">{level.percentileLabel}</ThemedText>
+                </View>
+                <View className="items-end gap-1">
+                  <ThemedText type="subtitle" style={{ color: Palette.accent }}>
+                    {level.bandLabel}
+                  </ThemedText>
+                  <ThemedText
+                    className="opacity-60"
+                    style={{ fontVariant: ['tabular-nums'] }}>
+                    e1RM {level.e1RM}
+                    {level.unit === 'bodyweight' ? '' : level.unit}
+                  </ThemedText>
+                </View>
+              </View>
+            ))
+          )}
+        </View>
 
         {/* Consistency calendar */}
         <View className="gap-3">
@@ -282,6 +350,21 @@ export default function StatsScreen() {
             </View>
           </View>
         ) : null}
+
+        {/* Achievements */}
+        <View className="gap-3">
+          <ThemedText type="label">Achievements</ThemedText>
+          <View className="gap-2">
+            {chunkPairs(achievements).map((pair, index) => (
+              <View key={index} className="flex-row gap-2">
+                {pair.map((achievement) => (
+                  <AchievementBadge key={achievement.id} achievement={achievement} />
+                ))}
+                {pair.length === 1 ? <View className="flex-1" /> : null}
+              </View>
+            ))}
+          </View>
+        </View>
       </ScrollView>
     </ThemedView>
   );

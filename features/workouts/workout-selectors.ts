@@ -20,12 +20,23 @@ import {
   getTargetRangeLabel,
   getTrackingMode,
 } from '@/features/workouts/workout-selector-helpers';
+import {
+  classifyLift,
+  STANDARD_LIFT_LABELS,
+  STRENGTH_BAND_LABELS,
+  STRENGTH_BAND_ORDER,
+  type StrengthBand,
+} from '@/features/workouts/strength-standards';
+import { ACHIEVEMENTS, type AchievementStats } from '@/features/workouts/achievements';
+import type { IconName } from '@/components/ui/icon';
 import type { RootState } from '@/store';
 import type {
   ExerciseTrackingMode,
   MuscleGroup,
   ProgramExercise,
+  StandardLiftKey,
   TrainingGoal,
+  UserProfile,
   WeightUnit,
   WorkoutDayTemplate,
   WorkoutProgram,
@@ -40,6 +51,8 @@ export type PlannedExercise = {
   exerciseName: string;
   unit: string;
   progressionSuggestion: string;
+  /** True when this row is an ad-hoc exercise in a freestyle session (no real ProgramExercise). */
+  isFreestyle?: boolean;
 };
 
 export type ProgramSummary = {
@@ -125,7 +138,7 @@ export type WorkoutActivity = {
 export type ExerciseLibraryItem = {
   id: string;
   name: string;
-  muscleGroup?: MuscleGroup;
+  muscleGroups?: MuscleGroup[];
   defaultUnit: WeightUnit;
   trainingGoal: TrainingGoal;
   trackingMode: ExerciseTrackingMode;
@@ -210,6 +223,14 @@ const selectWorkoutSessions = (state: RootState) => state.workout.workoutSession
 const selectWorkoutSetsById = (state: RootState) => state.workout.workoutSets;
 const selectProgressionRules = (state: RootState) => state.workout.progressionRules;
 const selectActiveWorkoutSessionId = (state: RootState) => state.workout.activeWorkoutSessionId;
+
+export const selectAllCompletedSessions = createSelector([selectWorkoutSessions], (workoutSessions) => {
+  const completed = Object.values(workoutSessions)
+    .filter((session) => session.status === 'completed')
+    .sort((a, b) => getSessionStartedAtTime(a) - getSessionStartedAtTime(b));
+
+  return completed.length > 0 ? completed : emptyCompletedSessions;
+});
 const toLocalDateKey = (date: Date) => {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, '0');
@@ -489,6 +510,7 @@ export const selectActiveSessionPlannedExercises = createSelector(
     selectExercises,
     selectWorkoutSetsById,
     selectCompletedSessionsForActiveProgram,
+    selectAllCompletedSessions,
     selectActiveWorkoutSession,
     selectProgressionRules,
   ],
@@ -498,9 +520,31 @@ export const selectActiveSessionPlannedExercises = createSelector(
     exercises,
     workoutSets,
     completedSessions,
+    allCompletedSessions,
     activeSession,
     progressionRules
   ): PlannedExercise[] => {
+    if (isFreestyleSession(activeSession)) {
+      const freestyle = getFreestyleExerciseData({
+        session: activeSession,
+        exercises,
+        completedSessions: allCompletedSessions,
+        workoutSets,
+      }).map(
+        ({ exercise, programExercise, lastPerformance }): PlannedExercise => ({
+          programExercise,
+          exerciseName: exercise.name,
+          unit: exercise.defaultUnit,
+          progressionSuggestion: lastPerformance
+            ? `Last time: ${formatWorkoutSetsSummary(lastPerformance.sets)}`
+            : 'Log your sets to start tracking.',
+          isFreestyle: true,
+        })
+      );
+
+      return freestyle.length > 0 ? freestyle : emptyPlannedExercises;
+    }
+
     return getPlannedExercisesForDay({
       activeSession,
       completedSessions,
@@ -519,6 +563,9 @@ export const selectActiveSessionExerciseReferences = createSelector(
     selectProgramExercises,
     selectWorkoutSetsById,
     selectCompletedSessionsForActiveProgram,
+    selectAllCompletedSessions,
+    selectActiveWorkoutSession,
+    selectExercises,
     selectProgressionRules,
   ],
   (
@@ -526,8 +573,42 @@ export const selectActiveSessionExerciseReferences = createSelector(
     programExercises,
     workoutSets,
     completedSessions,
+    allCompletedSessions,
+    activeSession,
+    exercises,
     progressionRules
   ): LastExerciseReference[] => {
+    if (isFreestyleSession(activeSession)) {
+      const references = getFreestyleExerciseData({
+        session: activeSession,
+        exercises,
+        completedSessions: allCompletedSessions,
+        workoutSets,
+      })
+        .map(({ programExercise, lastPerformance }): LastExerciseReference | null => {
+          if (!lastPerformance) {
+            return null;
+          }
+
+          const suggestedSets = getFreestyleSuggestedSets(lastPerformance.sets);
+
+          return {
+            programExerciseId: programExercise.id,
+            exerciseId: programExercise.exerciseId,
+            dateLabel: getDateLabel(new Date(lastPerformance.session.startedAt)),
+            setsLabel: formatWorkoutSetsSummary(lastPerformance.sets),
+            bestSetLabel: formatWorkoutSet(getBestSet(lastPerformance.sets)),
+            suggestion: `Prefilled from ${getDateLabel(
+              new Date(lastPerformance.session.startedAt)
+            )}`,
+            suggestedSets,
+          };
+        })
+        .filter((reference): reference is LastExerciseReference => reference !== null);
+
+      return references.length > 0 ? references : emptyLastExerciseReferences;
+    }
+
     if (!activeDay) {
       return emptyLastExerciseReferences;
     }
@@ -746,7 +827,7 @@ export const selectHypertrophyFocusInsight = createSelector(
       return null;
     }
 
-    const muscleGroup = exercises[plannedExercise.programExercise.exerciseId]?.muscleGroup;
+    const muscleGroup = exercises[plannedExercise.programExercise.exerciseId]?.muscleGroups?.[0];
 
     if (!muscleGroup) {
       return null;
@@ -898,7 +979,7 @@ const countSetsForMuscleGroup = (
       total +
       getSessionSets(session, workoutSets).filter(
         (set) =>
-          exercises[set.exerciseId]?.muscleGroup === muscleGroup &&
+          Boolean(exercises[set.exerciseId]?.muscleGroups?.includes(muscleGroup)) &&
           (set.programExerciseId
             ? programExercises[set.programExerciseId]?.trainingGoal === 'hypertrophy'
             : false)
@@ -1033,6 +1114,83 @@ const getMostRecentCompletedSetsForExercise = ({
     workoutSets,
   });
 };
+
+// --- Freestyle (program-less) session support -------------------------------
+// Freestyle sessions have no ProgramExercise rows. We synthesise lightweight
+// ProgramExercise objects (id `freestyle:<exerciseId>`) so the existing logging
+// screen and selectors can treat them uniformly. Their sets are logged with no
+// `programExerciseId`, so history matches by `exerciseId` instead.
+
+const FREESTYLE_PROGRAM_EXERCISE_PREFIX = 'freestyle:';
+
+export const isFreestyleSession = (session: WorkoutSession | null) =>
+  Boolean(session && !session.workoutDayTemplateId);
+
+// Freestyle is make-your-own-rules: no predetermined set count or rep target.
+// `targetSets: 0` makes the screen show "Set N" (no "of M"), hide the progress
+// bar, and skip auto-advance. Prefill still flows from the references selector.
+const createFreestyleProgramExercise = (
+  exercise: WorkoutState['exercises'][string],
+  index: number
+): ProgramExercise => ({
+  id: `${FREESTYLE_PROGRAM_EXERCISE_PREFIX}${exercise.id}`,
+  workoutDayTemplateId: '',
+  exerciseId: exercise.id,
+  order: index,
+  targetSets: 0,
+  trackingMode: exercise.trackingMode ?? 'reps',
+  trainingGoal: exercise.trainingGoal,
+});
+
+// Prefill straight from the last performance (no progression transform) so a
+// repeated/ad-hoc exercise shows exactly what was lifted last time.
+const getFreestyleSuggestedSets = (sets: WorkoutSet[]): SuggestedWorkoutSet[] =>
+  sets.map((set) => ({
+    weight: set.weight,
+    unit: set.unit,
+    ...(set.durationSeconds !== undefined
+      ? { durationSeconds: set.durationSeconds }
+      : { reps: set.reps ?? 0 }),
+  }));
+
+type FreestyleExerciseData = {
+  exercise: WorkoutState['exercises'][string];
+  programExercise: ProgramExercise;
+  lastPerformance: { session: WorkoutSession; sets: WorkoutSet[] } | null;
+};
+
+const getFreestyleExerciseData = ({
+  session,
+  exercises,
+  completedSessions,
+  workoutSets,
+}: {
+  session: WorkoutSession | null;
+  exercises: WorkoutState['exercises'];
+  completedSessions: WorkoutSession[];
+  workoutSets: WorkoutState['workoutSets'];
+}): FreestyleExerciseData[] =>
+  (session?.exerciseIds ?? [])
+    .map((exerciseId, index) => {
+      const exercise = exercises[exerciseId];
+
+      if (!exercise) {
+        return null;
+      }
+
+      const lastPerformance = getMostRecentCompletedSetsForExercise({
+        completedSessions,
+        exerciseId,
+        workoutSets,
+      });
+
+      return {
+        exercise,
+        programExercise: createFreestyleProgramExercise(exercise, index),
+        lastPerformance,
+      };
+    })
+    .filter((data): data is FreestyleExerciseData => data !== null);
 
 const getSuggestedSetsForProgramExercise = ({
   programExercise,
@@ -1382,17 +1540,6 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const selectExerciseIdParam = (_state: RootState, exerciseId: string) => exerciseId;
 
 /** All completed sessions across every program, oldest first. */
-export const selectAllCompletedSessions = createSelector(
-  [selectWorkoutSessions],
-  (workoutSessions) => {
-    const completed = Object.values(workoutSessions)
-      .filter((session) => session.status === 'completed')
-      .sort((a, b) => getSessionStartedAtTime(a) - getSessionStartedAtTime(b));
-
-    return completed.length > 0 ? completed : emptyCompletedSessions;
-  }
-);
-
 const countConsecutiveDaysBack = (start: Date, workoutDayKeys: Set<string>) => {
   let streak = 0;
   const cursor = new Date(start);
@@ -1493,7 +1640,7 @@ export const selectExerciseLibrary = createSelector([selectExercises], (exercise
       (exercise): ExerciseLibraryItem => ({
         id: exercise.id,
         name: exercise.name,
-        muscleGroup: exercise.muscleGroup,
+        muscleGroups: exercise.muscleGroups,
         defaultUnit: exercise.defaultUnit,
         trainingGoal: exercise.trainingGoal ?? 'strength',
         trackingMode: exercise.trackingMode ?? 'reps',
@@ -1706,5 +1853,451 @@ export const selectActiveSessionPersonalRecords = createSelector(
     });
 
     return records.length > 0 ? records : emptySessionPersonalRecords;
+  }
+);
+
+// --- Workout history, session detail & training analytics -------------------
+
+export type WorkoutHistoryItem = CompletedWorkoutSummary & {
+  isFreestyle: boolean;
+};
+
+export type SessionExerciseGroup = {
+  exerciseId: string;
+  exerciseName: string;
+  muscleGroups?: MuscleGroup[];
+  unit: WeightUnit;
+  setsLabel: string;
+  bestSetLabel: string;
+  setCount: number;
+  volume: number;
+};
+
+export type MuscleGroupBreakdownItem = {
+  muscleGroup: MuscleGroup;
+  label: string;
+  sets: number;
+  volume: number;
+};
+
+export type TrainingFocusKind = 'strength' | 'hypertrophy' | 'power';
+
+export type TrainingFocusItem = {
+  goal: TrainingFocusKind;
+  label: string;
+  sets: number;
+  share: number;
+};
+
+export type TrainingFocusBreakdown = {
+  items: TrainingFocusItem[];
+  dominant: TrainingFocusItem | null;
+  verdict: string;
+};
+
+export type SessionDetail = {
+  id: string;
+  name: string;
+  dateLabel: string;
+  totalSets: number;
+  totalVolume: number;
+  durationSeconds: number;
+  isFreestyle: boolean;
+  exercises: SessionExerciseGroup[];
+  muscleGroups: MuscleGroupBreakdownItem[];
+  focus: TrainingFocusBreakdown;
+};
+
+const MUSCLE_GROUP_LABELS: Record<MuscleGroup, string> = {
+  chest: 'Chest',
+  back: 'Back',
+  shoulders: 'Shoulders',
+  biceps: 'Biceps',
+  triceps: 'Triceps',
+  quads: 'Quads',
+  hamstrings: 'Hamstrings',
+  glutes: 'Glutes',
+  core: 'Core',
+  full_body: 'Full body',
+};
+
+const TRAINING_FOCUS_LABELS: Record<TrainingFocusKind, string> = {
+  strength: 'Strength',
+  hypertrophy: 'Hypertrophy',
+  power: 'Power',
+};
+
+const emptyMuscleGroupBreakdown: MuscleGroupBreakdownItem[] = [];
+const emptyTrainingFocus: TrainingFocusBreakdown = { items: [], dominant: null, verdict: '' };
+const emptyWorkoutHistory: WorkoutHistoryItem[] = [];
+const emptySessionExerciseGroups: SessionExerciseGroup[] = [];
+
+// A set's training goal comes from its ProgramExercise when logged in a program,
+// otherwise from the exercise definition (the freestyle / library default).
+const getSetTrainingGoal = (
+  set: WorkoutSet,
+  exercises: WorkoutState['exercises'],
+  programExercises: WorkoutState['programExercises']
+): TrainingGoal | undefined =>
+  (set.programExerciseId ? programExercises[set.programExerciseId]?.trainingGoal : undefined) ??
+  exercises[set.exerciseId]?.trainingGoal;
+
+const getMuscleGroupBreakdown = (
+  sets: WorkoutSet[],
+  exercises: WorkoutState['exercises']
+): MuscleGroupBreakdownItem[] => {
+  const totals = new Map<MuscleGroup, { sets: number; volume: number }>();
+
+  sets.forEach((set) => {
+    const setMuscleGroups = exercises[set.exerciseId]?.muscleGroups;
+
+    if (!setMuscleGroups || setMuscleGroups.length === 0) {
+      return;
+    }
+
+    // Credit the set to every muscle group the exercise targets.
+    setMuscleGroups.forEach((muscleGroup) => {
+      const entry = totals.get(muscleGroup) ?? { sets: 0, volume: 0 };
+
+      entry.sets += 1;
+      entry.volume += getSetVolume(set);
+      totals.set(muscleGroup, entry);
+    });
+  });
+
+  const items = [...totals.entries()]
+    .map(([muscleGroup, entry]) => ({
+      muscleGroup,
+      label: MUSCLE_GROUP_LABELS[muscleGroup],
+      sets: entry.sets,
+      volume: Math.round(entry.volume),
+    }))
+    .sort((a, b) => b.sets - a.sets || b.volume - a.volume);
+
+  return items.length > 0 ? items : emptyMuscleGroupBreakdown;
+};
+
+const getTrainingFocusBreakdown = (
+  sets: WorkoutSet[],
+  exercises: WorkoutState['exercises'],
+  programExercises: WorkoutState['programExercises']
+): TrainingFocusBreakdown => {
+  const counts: Record<TrainingFocusKind, number> = { strength: 0, hypertrophy: 0, power: 0 };
+  let classified = 0;
+
+  sets.forEach((set) => {
+    const goal = getSetTrainingGoal(set, exercises, programExercises);
+
+    if (goal === 'strength' || goal === 'hypertrophy' || goal === 'power') {
+      counts[goal] += 1;
+      classified += 1;
+    }
+  });
+
+  if (classified === 0) {
+    return emptyTrainingFocus;
+  }
+
+  const items = (Object.keys(counts) as TrainingFocusKind[])
+    .map((goal) => ({
+      goal,
+      label: TRAINING_FOCUS_LABELS[goal],
+      sets: counts[goal],
+      share: counts[goal] / classified,
+    }))
+    .filter((item) => item.sets > 0)
+    .sort((a, b) => b.sets - a.sets);
+
+  const dominant = items[0] ?? null;
+
+  return {
+    items,
+    dominant,
+    verdict: dominant ? `${Math.round(dominant.share * 100)}% ${dominant.label.toLowerCase()} focus` : '',
+  };
+};
+
+const getSessionExerciseGroups = (
+  sets: WorkoutSet[],
+  exercises: WorkoutState['exercises']
+): SessionExerciseGroup[] => {
+  const order: string[] = [];
+  const groups = new Map<string, WorkoutSet[]>();
+
+  sets.forEach((set) => {
+    const group = groups.get(set.exerciseId);
+
+    if (group) {
+      group.push(set);
+    } else {
+      groups.set(set.exerciseId, [set]);
+      order.push(set.exerciseId);
+    }
+  });
+
+  if (order.length === 0) {
+    return emptySessionExerciseGroups;
+  }
+
+  return order.map((exerciseId) => {
+    const exercise = exercises[exerciseId];
+    const groupSets = groups.get(exerciseId) ?? [];
+
+    return {
+      exerciseId,
+      exerciseName: exercise?.name ?? 'Exercise',
+      muscleGroups: exercise?.muscleGroups,
+      unit: exercise?.defaultUnit ?? 'kg',
+      setsLabel: formatWorkoutSetsSummary(groupSets),
+      bestSetLabel: groupSets.length > 0 ? formatWorkoutSet(getBestSet(groupSets)) : '',
+      setCount: groupSets.length,
+      volume: Math.round(groupSets.reduce((total, set) => total + getSetVolume(set), 0)),
+    };
+  });
+};
+
+export const selectWorkoutHistory = createSelector(
+  [selectAllCompletedSessions, selectWorkoutSetsById],
+  (completedSessions, workoutSets): WorkoutHistoryItem[] => {
+    if (completedSessions.length === 0) {
+      return emptyWorkoutHistory;
+    }
+
+    return [...completedSessions]
+      .sort((a, b) => getSessionStartedAtTime(b) - getSessionStartedAtTime(a))
+      .map((session) => {
+        const summary = getSessionSummary(session, workoutSets);
+
+        return {
+          id: session.id,
+          name: session.name,
+          dateLabel: getDateLabel(new Date(session.startedAt)),
+          sets: summary.sets,
+          volume: summary.volume,
+          durationSeconds: summary.durationSeconds,
+          isFreestyle: !session.workoutDayTemplateId,
+        };
+      });
+  }
+);
+
+const selectSessionIdParam = (_state: RootState, sessionId: string) => sessionId;
+
+export const selectSessionDetailById = createSelector(
+  [
+    selectWorkoutSessions,
+    selectWorkoutSetsById,
+    selectExercises,
+    selectProgramExercises,
+    selectSessionIdParam,
+  ],
+  (workoutSessions, workoutSets, exercises, programExercises, sessionId): SessionDetail | null => {
+    const session = workoutSessions[sessionId];
+
+    if (!session) {
+      return null;
+    }
+
+    const sets = getSessionSets(session, workoutSets);
+    const summary = getSessionSummary(session, workoutSets);
+
+    return {
+      id: session.id,
+      name: session.name,
+      dateLabel: getDateLabel(new Date(session.startedAt)),
+      totalSets: summary.sets,
+      totalVolume: summary.volume,
+      durationSeconds: summary.durationSeconds,
+      isFreestyle: !session.workoutDayTemplateId,
+      exercises: getSessionExerciseGroups(sets, exercises),
+      muscleGroups: getMuscleGroupBreakdown(sets, exercises),
+      focus: getTrainingFocusBreakdown(sets, exercises, programExercises),
+    };
+  }
+);
+
+export const selectActiveSessionMuscleGroups = createSelector(
+  [selectActiveSessionSets, selectExercises],
+  (sets, exercises): MuscleGroupBreakdownItem[] => getMuscleGroupBreakdown(sets, exercises)
+);
+
+export const selectActiveSessionFocus = createSelector(
+  [selectActiveSessionSets, selectExercises, selectProgramExercises],
+  (sets, exercises, programExercises): TrainingFocusBreakdown =>
+    getTrainingFocusBreakdown(sets, exercises, programExercises)
+);
+
+// --- Strength level (profile + standards) -----------------------------------
+
+export type StrengthLevel = {
+  exerciseId: string;
+  exerciseName: string;
+  lift: StandardLiftKey;
+  e1RM: number;
+  unit: WeightUnit;
+  band: StrengthBand;
+  bandLabel: string;
+  percentileLabel: string;
+};
+
+export type StrengthProfileState = {
+  profile: UserProfile | null;
+  isComplete: boolean;
+  levels: StrengthLevel[];
+  /** Highest band the lifter has reached across their standard lifts. */
+  topBand: StrengthBand | null;
+  /** Overall account title, e.g. "Intermediate Lifter". */
+  title: string | null;
+};
+
+const emptyStrengthLevels: StrengthLevel[] = [];
+
+const selectProfileState = (state: RootState): UserProfile | null => state.workout.profile ?? null;
+
+export const selectStrengthProfile = createSelector(
+  [selectProfileState, selectExercises, selectAllCompletedSessions, selectWorkoutSetsById],
+  (profile, exercises, sessions, workoutSets): StrengthProfileState => {
+    const isComplete = Boolean(profile?.bodyweightKg && profile.sex);
+
+    if (!isComplete || !profile?.bodyweightKg || !profile.sex) {
+      return { profile, isComplete: false, levels: emptyStrengthLevels, topBand: null, title: null };
+    }
+
+    // Best e1RM per standard-lift exercise across all completed sessions.
+    const bestById = new Map<string, number>();
+
+    sessions.forEach((session) => {
+      getSessionSets(session, workoutSets).forEach((set) => {
+        if (!exercises[set.exerciseId]?.standardLift) {
+          return;
+        }
+
+        const e1RM = getEstimatedOneRepMax(set);
+
+        bestById.set(set.exerciseId, Math.max(bestById.get(set.exerciseId) ?? 0, e1RM));
+      });
+    });
+
+    const levels: StrengthLevel[] = [...bestById.entries()]
+      .map(([exerciseId, e1RM]) => {
+        const exercise = exercises[exerciseId];
+        const lift = exercise?.standardLift;
+
+        if (!exercise || !lift) {
+          return null;
+        }
+
+        const classification = classifyLift({
+          e1RM,
+          bodyweightKg: profile.bodyweightKg as number,
+          sex: profile.sex as NonNullable<UserProfile['sex']>,
+          lift,
+        });
+
+        return {
+          exerciseId,
+          exerciseName: STANDARD_LIFT_LABELS[lift] ?? exercise.name,
+          lift,
+          e1RM: Math.round(e1RM),
+          unit: exercise.defaultUnit,
+          band: classification.band,
+          bandLabel: classification.bandLabel,
+          percentileLabel: classification.percentileLabel,
+        };
+      })
+      .filter((level): level is StrengthLevel => level !== null)
+      .sort(
+        (a, b) =>
+          STRENGTH_BAND_ORDER.indexOf(b.band) - STRENGTH_BAND_ORDER.indexOf(a.band) ||
+          b.e1RM - a.e1RM
+      );
+
+    const topBand =
+      levels.length > 0
+        ? levels.reduce<StrengthBand>(
+            (best, level) =>
+              STRENGTH_BAND_ORDER.indexOf(level.band) > STRENGTH_BAND_ORDER.indexOf(best)
+                ? level.band
+                : best,
+            levels[0].band
+          )
+        : null;
+
+    return {
+      profile,
+      isComplete: true,
+      levels: levels.length > 0 ? levels : emptyStrengthLevels,
+      topBand,
+      title: topBand ? `${STRENGTH_BAND_LABELS[topBand]} Lifter` : null,
+    };
+  }
+);
+
+// --- Gamification: achievements ---------------------------------------------
+
+export type AchievementView = {
+  id: string;
+  title: string;
+  description: string;
+  icon: IconName;
+  isEarned: boolean;
+  progress: number;
+};
+
+export const selectAchievements = createSelector(
+  [
+    selectWorkoutActivity,
+    selectPersonalRecords,
+    selectAllCompletedSessions,
+    selectWorkoutSetsById,
+    selectExercises,
+    selectStrengthProfile,
+  ],
+  (activity, records, sessions, workoutSets, exercises, strength): AchievementView[] => {
+    const muscleGroups = new Set<MuscleGroup>();
+    let bestSessionVolume = 0;
+    let hasFreestyleWorkout = false;
+
+    sessions.forEach((session) => {
+      if (!session.workoutDayTemplateId) {
+        hasFreestyleWorkout = true;
+      }
+
+      const sessionSets = getSessionSets(session, workoutSets);
+      const volume = sessionSets.reduce((total, set) => total + getSetVolume(set), 0);
+
+      bestSessionVolume = Math.max(bestSessionVolume, volume);
+      sessionSets.forEach((set) => {
+        exercises[set.exerciseId]?.muscleGroups?.forEach((muscleGroup) => {
+          muscleGroups.add(muscleGroup);
+        });
+      });
+    });
+
+    const topBandIndex = strength.topBand ? STRENGTH_BAND_ORDER.indexOf(strength.topBand) : -1;
+
+    const stats: AchievementStats = {
+      totalWorkouts: activity.totalWorkouts,
+      longestStreak: activity.longestStreak,
+      personalRecordCount: records.reduce((total, record) => total + record.records.length, 0),
+      bestSessionVolume,
+      distinctMuscleGroups: muscleGroups.size,
+      reachedAdvanced: topBandIndex >= STRENGTH_BAND_ORDER.indexOf('advanced'),
+      reachedElite: topBandIndex >= STRENGTH_BAND_ORDER.indexOf('elite'),
+      hasFreestyleWorkout,
+    };
+
+    return ACHIEVEMENTS.map((achievement) => {
+      const isEarned = achievement.isEarned(stats);
+
+      return {
+        id: achievement.id,
+        title: achievement.title,
+        description: achievement.description,
+        icon: achievement.icon,
+        isEarned,
+        progress: isEarned ? 1 : achievement.progress?.(stats) ?? 0,
+      };
+    });
   }
 );

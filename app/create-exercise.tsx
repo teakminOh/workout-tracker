@@ -77,7 +77,13 @@ export default function CreateExerciseScreen() {
   );
 
   const [name, setName] = useState(existing?.name ?? '');
-  const [muscleGroup, setMuscleGroup] = useState<MuscleGroup | undefined>(existing?.muscleGroup);
+  const [muscleGroups, setMuscleGroups] = useState<MuscleGroup[]>(existing?.muscleGroups ?? []);
+
+  const toggleMuscleGroup = (value: MuscleGroup) => {
+    setMuscleGroups((current) =>
+      current.includes(value) ? current.filter((group) => group !== value) : [...current, value]
+    );
+  };
   const [unit, setUnit] = useState<WeightUnit>(existing?.defaultUnit ?? 'kg');
   const [trackingMode, setTrackingMode] = useState<ExerciseTrackingMode>(
     existing?.trackingMode ?? 'reps'
@@ -93,7 +99,7 @@ export default function CreateExerciseScreen() {
       return;
     }
 
-    const payload = { name, muscleGroup, defaultUnit: unit, trainingGoal, trackingMode };
+    const payload = { name, muscleGroups, defaultUnit: unit, trainingGoal, trackingMode };
 
     if (existing) {
       dispatch(updateExercise({ exerciseId: existing.id, ...payload }));
@@ -119,15 +125,15 @@ export default function CreateExerciseScreen() {
           </View>
 
           <View className="gap-2">
-            <ThemedText type="label">Muscle group</ThemedText>
+            <ThemedText type="label">Muscle groups</ThemedText>
             <View className="flex-row flex-wrap gap-2">
               {muscleOptions.map((option) => (
                 <AppButton
                   key={option.value}
                   title={option.label}
-                  variant={muscleGroup === option.value ? 'primary' : 'secondary'}
+                  variant={muscleGroups.includes(option.value) ? 'primary' : 'secondary'}
                   className="min-h-10 px-3 py-2"
-                  onPress={() => setMuscleGroup(option.value)}
+                  onPress={() => toggleMuscleGroup(option.value)}
                 />
               ))}
             </View>

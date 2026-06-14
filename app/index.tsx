@@ -3,18 +3,26 @@ import { useRouter, type Href } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { AppButton } from '@/components/ui/app-button';
 import { Icon } from '@/components/ui/icon';
 import { IconButton } from '@/components/ui/icon-button';
 import { PressableScale } from '@/components/ui/pressable-scale';
 import { Palette } from '@/constants/theme';
 import { selectProgramSummaries } from '@/features/workouts/workout-selectors';
-import { useAppSelector } from '@/store/hooks';
+import { startFreestyleWorkoutSession } from '@/features/workouts/workout-slice';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
 
 const cardStyle = { borderCurve: 'continuous' } as const;
 
 export default function HomeScreen() {
   const router = useRouter();
+  const dispatch = useAppDispatch();
   const programs = useAppSelector(selectProgramSummaries);
+
+  const handleStartFreestyle = () => {
+    dispatch(startFreestyleWorkoutSession());
+    router.push('/start-workout' as Href);
+  };
 
   return (
     <ThemedView className="flex-1">
@@ -25,6 +33,20 @@ export default function HomeScreen() {
         <View className="flex-row items-center justify-between gap-3">
           <ThemedText type="title">Workout Tracker</ThemedText>
           <View className="flex-row gap-2">
+            <IconButton
+              name="user"
+              accessibilityLabel="Profile"
+              className="bg-surface"
+              color={Palette.accent}
+              onPress={() => router.push('/profile' as Href)}
+            />
+            <IconButton
+              name="clock"
+              accessibilityLabel="Workout history"
+              className="bg-surface"
+              color={Palette.accent}
+              onPress={() => router.push('/history' as Href)}
+            />
             <IconButton
               name="list"
               accessibilityLabel="Exercise library"
@@ -41,6 +63,12 @@ export default function HomeScreen() {
             />
           </View>
         </View>
+
+        <AppButton
+          title="Start Workout"
+          icon="zap"
+          onPress={handleStartFreestyle}
+        />
 
         <View className="gap-3">
           <ThemedText type="label">Programs</ThemedText>

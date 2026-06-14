@@ -19,24 +19,33 @@ import { IconButton } from '@/components/ui/icon-button';
 import { PressableScale } from '@/components/ui/pressable-scale';
 import { ProgressBar } from '@/components/ui/progress-bar';
 import { WorkoutAnalyticsSummary } from '@/components/workout/analytics-summary';
+import { ExercisePicker } from '@/components/workout/exercise-picker';
+import { FocusBreakdown } from '@/components/workout/focus-breakdown';
+import { MuscleGroupBreakdown } from '@/components/workout/muscle-group-breakdown';
 import { Palette } from '@/constants/theme';
 import {
   selectActiveProgram,
   selectActiveSessionDay,
   selectActiveSessionExerciseReferences,
+  selectActiveSessionFocus,
+  selectActiveSessionMuscleGroups,
   selectActiveSessionPersonalRecords,
   selectActiveSessionPlannedExercises,
   selectActiveSessionSets,
   selectActiveWorkoutSession,
   selectTotalSets,
   selectTotalVolume,
+  type MuscleGroupBreakdownItem,
   type SessionPersonalRecord,
+  type TrainingFocusBreakdown,
 } from '@/features/workouts/workout-selectors';
 import {
+  addExerciseToActiveSession,
   addSet,
   clearCurrentWorkout,
   deleteSet,
   finishCurrentWorkout,
+  removeExerciseFromActiveSession,
   updateSet,
 } from '@/features/workouts/workout-slice';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
@@ -100,6 +109,8 @@ type CompletedWorkoutSummary = {
   totalVolume: number;
   durationSeconds: number;
   personalRecords: SessionPersonalRecord[];
+  muscleGroups: MuscleGroupBreakdownItem[];
+  focus: TrainingFocusBreakdown;
 };
 
 const personalRecordLabels: Record<SessionPersonalRecord['type'], string> = {
@@ -148,6 +159,8 @@ export default function StartWorkoutScreen() {
   const totalSets = useAppSelector(selectTotalSets);
   const totalVolume = useAppSelector(selectTotalVolume);
   const sessionPersonalRecords = useAppSelector(selectActiveSessionPersonalRecords);
+  const sessionMuscleGroups = useAppSelector(selectActiveSessionMuscleGroups);
+  const sessionFocus = useAppSelector(selectActiveSessionFocus);
   const exercisesById = useAppSelector((state) => state.workout.exercises);
 
   const [selectedProgramExerciseId, setSelectedProgramExerciseId] = useState<string | null>(null);
@@ -157,6 +170,9 @@ export default function StartWorkoutScreen() {
   const [weight, setWeight] = useState('');
   const [powerQuality, setPowerQuality] = useState<PowerQuality | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [pickerVisible, setPickerVisible] = useState(false);
+
+  const isFreestyle = activeSession ? !activeSession.workoutDayTemplateId : false;
 
   const getLoggedSetCountForPlannedExercise = useCallback(
     (programExerciseId: string, exerciseId?: string) =>
@@ -374,6 +390,42 @@ export default function StartWorkoutScreen() {
     setPowerQuality(null);
   };
 
+  const handleAddFreestyleExercise = (exerciseId: string) => {
+    dispatch(addExerciseToActiveSession({ exerciseId }));
+    setPickerVisible(false);
+  };
+
+  const handleRemoveFreestyleExercise = (
+    exerciseId: string,
+    exerciseName: string,
+    hasLoggedSets: boolean
+  ) => {
+    const remove = () => {
+      if (selectedProgramExerciseId === `freestyle:${exerciseId}`) {
+        setSelectedProgramExerciseId(null);
+        setReps('');
+        setWeight('');
+        setPowerQuality(null);
+      }
+
+      dispatch(removeExerciseFromActiveSession({ exerciseId }));
+    };
+
+    if (!hasLoggedSets) {
+      remove();
+      return;
+    }
+
+    showDialog({
+      title: `Remove ${exerciseName}?`,
+      message: 'This also deletes the sets you logged for it in this workout.',
+      buttons: [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Remove', style: 'destructive', onPress: remove },
+      ],
+    });
+  };
+
   const handleCancelEdit = () => {
     const programExerciseId = selectedProgramExerciseId;
 
@@ -469,7 +521,9 @@ export default function StartWorkoutScreen() {
     dispatch(
       addSet({
         exerciseId: selectedPlannedExercise.programExercise.exerciseId,
-        programExerciseId: currentProgramExerciseId,
+        programExerciseId: selectedPlannedExercise.isFreestyle
+          ? undefined
+          : currentProgramExerciseId,
         ...(isTimeBasedExercise
           ? { durationSeconds: Math.round(parsedWorkAmount) }
           : { reps: Math.round(parsedWorkAmount) }),
@@ -479,8 +533,12 @@ export default function StartWorkoutScreen() {
     );
 
     // Flow shortcut: once an exercise hits its target sets, jump to the next
-    // unfinished exercise with its suggested values prefilled.
-    if (nextLoggedSetCount >= selectedPlannedExercise.programExercise.targetSets) {
+    // unfinished exercise with its suggested values prefilled. Freestyle exercises
+    // have no target (targetSets 0), so they never auto-advance.
+    if (
+      selectedPlannedExercise.programExercise.targetSets > 0 &&
+      nextLoggedSetCount >= selectedPlannedExercise.programExercise.targetSets
+    ) {
       const currentIndex = plannedExercises.findIndex(
         (plannedExercise) => plannedExercise.programExercise.id === currentProgramExerciseId
       );
@@ -521,6 +579,8 @@ export default function StartWorkoutScreen() {
       totalVolume,
       durationSeconds,
       personalRecords: sessionPersonalRecords,
+      muscleGroups: sessionMuscleGroups,
+      focus: sessionFocus,
     });
     setSelectedProgramExerciseId(null);
     setEditingSetId(null);
@@ -598,6 +658,9 @@ export default function StartWorkoutScreen() {
             ]}
           />
 
+          <FocusBreakdown focus={completedSummary.focus} />
+          <MuscleGroupBreakdown muscleGroups={completedSummary.muscleGroups} />
+
           <AppButton
             title="Back Home"
             onPress={() => {
@@ -641,7 +704,7 @@ export default function StartWorkoutScreen() {
           <ThemedText className="opacity-60">
             {activeDay
               ? `${activeProgram?.name ?? 'Program'} · ${activeDay.name}`
-              : 'Log your planned exercises.'}
+              : 'Freestyle workout · add and log any exercise'}
           </ThemedText>
 
           <WorkoutAnalyticsSummary
@@ -662,10 +725,30 @@ export default function StartWorkoutScreen() {
           </WorkoutAnalyticsSummary>
 
           <View className="gap-3">
-            <ThemedText type="label">Exercises</ThemedText>
+            <View className="flex-row items-center justify-between">
+              <ThemedText type="label">Exercises</ThemedText>
+              {isFreestyle ? (
+                <PressableScale
+                  accessibilityRole="button"
+                  accessibilityLabel="Add exercise"
+                  hitSlop={8}
+                  className="flex-row items-center gap-1"
+                  disabled={isEditingSet}
+                  onPress={() => setPickerVisible(true)}>
+                  <Icon name="plus" size={16} color={Palette.accent} />
+                  <ThemedText type="defaultSemiBold" style={{ color: Palette.accent }}>
+                    Add
+                  </ThemedText>
+                </PressableScale>
+              ) : null}
+            </View>
             {plannedExercises.length === 0 ? (
               <View style={cardStyle} className="rounded-10 bg-surface p-4">
-                <ThemedText className="opacity-60">No planned exercises yet.</ThemedText>
+                <ThemedText className="opacity-60">
+                  {isFreestyle
+                    ? 'Tap Add to choose your first exercise.'
+                    : 'No planned exercises yet.'}
+                </ThemedText>
               </View>
             ) : (
               plannedExercises.map((plannedExercise) => {
@@ -701,7 +784,11 @@ export default function StartWorkoutScreen() {
                           {plannedExercise.exerciseName}
                         </ThemedText>
                         <ThemedText className="text-[13px] leading-5 opacity-60">
-                          {getPlannedExerciseTargetText(plannedExercise.programExercise)}
+                          {plannedExercise.isFreestyle
+                            ? loggedCount > 0
+                              ? `${loggedCount} ${loggedCount === 1 ? 'set' : 'sets'} logged`
+                              : 'No sets yet'
+                            : getPlannedExerciseTargetText(plannedExercise.programExercise)}
                         </ThemedText>
                       </View>
                       <View className="flex-row items-center gap-2">
@@ -711,10 +798,24 @@ export default function StartWorkoutScreen() {
                             fontVariant: ['tabular-nums'],
                             color: isComplete ? Palette.accent : Palette.muted,
                           }}>
-                          {loggedCount}/{targetCount}
+                          {plannedExercise.isFreestyle ? loggedCount : `${loggedCount}/${targetCount}`}
                         </ThemedText>
                         {isComplete ? (
                           <Icon name="check-circle" size={18} color={Palette.accent} />
+                        ) : null}
+                        {plannedExercise.isFreestyle && !isEditingSet ? (
+                          <IconButton
+                            name="trash-2"
+                            size={16}
+                            accessibilityLabel={`Remove ${plannedExercise.exerciseName}`}
+                            onPress={() =>
+                              handleRemoveFreestyleExercise(
+                                plannedExercise.programExercise.exerciseId,
+                                plannedExercise.exerciseName,
+                                loggedCount > 0
+                              )
+                            }
+                          />
                         ) : null}
                       </View>
                     </View>
@@ -942,6 +1043,12 @@ export default function StartWorkoutScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <ExercisePicker
+        visible={pickerVisible}
+        onSelect={handleAddFreestyleExercise}
+        onClose={() => setPickerVisible(false)}
+      />
     </ThemedView>
   );
 }

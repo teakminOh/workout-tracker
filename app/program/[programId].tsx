@@ -10,7 +10,11 @@ import {
   selectProgramById,
   selectProgramEditorDaysByProgramId,
 } from '@/features/workouts/workout-selectors';
-import { clearCurrentWorkout, startWorkoutSession } from '@/features/workouts/workout-slice';
+import {
+  clearCurrentWorkout,
+  deleteWorkoutProgram,
+  startWorkoutSession,
+} from '@/features/workouts/workout-slice';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 
 const cardStyle = { borderCurve: 'continuous' } as const;
@@ -69,6 +73,28 @@ export default function ProgramScreen() {
     startFresh();
   };
 
+  const handleDeleteProgram = () => {
+    if (!program) {
+      return;
+    }
+
+    showDialog({
+      title: `Delete ${program.name}?`,
+      message: 'This removes the program and its days. Your logged workout history is kept.',
+      buttons: [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            dispatch(deleteWorkoutProgram({ programId: program.id }));
+            router.replace('/' as Href);
+          },
+        },
+      ],
+    });
+  };
+
   if (!program) {
     return (
       <ThemedView className="flex-1 px-5 py-10">
@@ -96,16 +122,19 @@ export default function ProgramScreen() {
           </ThemedText>
         </View>
 
-        <AppButton
-          title="Edit Program"
-          variant="secondary"
-          onPress={() =>
-            router.push({
-              pathname: '/program/[programId]/edit',
-              params: { programId: program.id },
-            } as Href)
-          }
-        />
+        <View className="gap-3">
+          <AppButton
+            title="Edit Program"
+            variant="secondary"
+            onPress={() =>
+              router.push({
+                pathname: '/program/[programId]/edit',
+                params: { programId: program.id },
+              } as Href)
+            }
+          />
+          <AppButton title="Delete Program" variant="danger" onPress={handleDeleteProgram} />
+        </View>
 
         <View className="gap-3">
           <ThemedText type="label">Days</ThemedText>

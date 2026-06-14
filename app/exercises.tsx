@@ -61,7 +61,9 @@ export default function ExercisesScreen() {
                   }>
                   <ThemedText type="defaultSemiBold">{exercise.name}</ThemedText>
                   <ThemedText className="opacity-60">
-                    {exercise.muscleGroup ? `${muscleLabels[exercise.muscleGroup]} · ` : ''}
+                    {exercise.muscleGroups && exercise.muscleGroups.length > 0
+                      ? `${exercise.muscleGroups.map((group) => muscleLabels[group]).join(', ')} · `
+                      : ''}
                     {categoryLabels[exercise.trainingGoal]}
                   </ThemedText>
                 </PressableScale>

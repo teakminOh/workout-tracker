@@ -29,16 +29,33 @@ export type PowerQuality = 'fast' | 'good' | 'slow' | 'failed';
 
 export type ProgramPhase = 'hypertrophy' | 'strength' | 'power' | 'deload';
 
+/** Big barbell lifts that map to population strength standards. */
+export type StandardLiftKey =
+  | 'bench'
+  | 'squat'
+  | 'deadlift'
+  | 'overhead_press'
+  | 'barbell_row';
+
+export type BiologicalSex = 'male' | 'female';
+
+export type UserProfile = {
+  bodyweightKg?: number;
+  sex?: BiologicalSex;
+};
+
 export type Exercise = {
   id: string;
   name: string;
   category?: ExerciseCategory;
-  muscleGroup?: MuscleGroup;
+  muscleGroups?: MuscleGroup[];
   defaultUnit: WeightUnit;
   /** Analytics category — what the Stats screen tracks for this exercise. */
   trainingGoal?: TrainingGoal;
   /** Whether the exercise is logged in reps or time. */
   trackingMode?: ExerciseTrackingMode;
+  /** Links a big barbell lift to the strength-standards table for level scoring. */
+  standardLift?: StandardLiftKey;
   notes?: string;
   isArchived?: boolean;
   archivedAt?: string;
@@ -100,6 +117,8 @@ export type WorkoutSession = {
   startedAt: string;
   endedAt?: string;
   setIds: string[];
+  /** Ordered ad-hoc exercise list for a freestyle (program-less) session. */
+  exerciseIds?: string[];
   status: WorkoutSessionStatus;
 };
 
@@ -139,11 +158,15 @@ export type WorkoutState = {
   activeWorkoutSessionId: string | null;
   /** Set after creating a library exercise so the picker can auto-select it. */
   lastCreatedExerciseId?: string | null;
+  /** Bodyweight + sex, used for strength-level scoring. */
+  profile?: UserProfile;
 };
+
+export type UpdateProfileInput = UserProfile;
 
 export type CreateExerciseInput = {
   name: string;
-  muscleGroup?: MuscleGroup;
+  muscleGroups?: MuscleGroup[];
   defaultUnit: WeightUnit;
   trainingGoal: TrainingGoal;
   trackingMode: ExerciseTrackingMode;
@@ -160,6 +183,18 @@ export type DeleteExerciseInput = {
 export type StartWorkoutSessionInput = {
   programId: string;
   workoutDayTemplateId: string;
+};
+
+export type AddExerciseToSessionInput = {
+  exerciseId: string;
+};
+
+export type RemoveExerciseFromSessionInput = {
+  exerciseId: string;
+};
+
+export type RepeatWorkoutSessionInput = {
+  sessionId: string;
 };
 
 export type CreateWorkoutProgramExerciseInput = {
@@ -186,6 +221,10 @@ export type CreateWorkoutProgramInput = {
 export type UpdateWorkoutProgramInput = {
   programId: string;
   name: string;
+};
+
+export type DeleteWorkoutProgramInput = {
+  programId: string;
 };
 
 export type AddWorkoutDayInput = {
