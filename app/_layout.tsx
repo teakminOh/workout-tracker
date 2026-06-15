@@ -50,17 +50,13 @@ export default function RootLayout() {
             contentStyle: { backgroundColor: Palette.bg },
             animation: 'slide_from_right',
           }}>
-          <Stack.Screen name="index" options={{ headerShown: false }} />
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="create-program" options={{ title: 'Create Program' }} />
           <Stack.Screen name="program/[programId]" options={{ title: 'Choose Workout' }} />
           <Stack.Screen name="program/[programId]/edit" options={{ title: 'Edit Program' }} />
           <Stack.Screen name="start-workout" options={{ title: 'Workout' }} />
-          <Stack.Screen name="stats" options={{ title: 'Stats' }} />
-          <Stack.Screen name="exercises" options={{ title: 'Exercises' }} />
           <Stack.Screen name="create-exercise" options={{ title: 'Exercise' }} />
-          <Stack.Screen name="history" options={{ title: 'History' }} />
           <Stack.Screen name="session/[sessionId]" options={{ title: 'Workout' }} />
-          <Stack.Screen name="profile" options={{ title: 'Profile' }} />
         </Stack>
         <StatusBar style="light" />
       </AppDialogProvider>

@@ -190,6 +190,7 @@ const emptyWorkoutSets: WorkoutSet[] = [];
 const emptyPlannedExercises: PlannedExercise[] = [];
 const emptyProgramEditorDays: ProgramEditorDay[] = [];
 const emptyCompletedSessions: WorkoutSession[] = [];
+const emptyEarnedAchievementIds: string[] = [];
 const emptyCompletedWorkouts: CompletedWorkoutSummary[] = [];
 const emptyProgressionSuggestions: ProgressionSuggestionSummary[] = [];
 const emptyLastExerciseReferences: LastExerciseReference[] = [];
@@ -2244,6 +2245,9 @@ export type AchievementView = {
   progress: number;
 };
 
+const selectEarnedAchievementIds = (state: RootState) =>
+  state.workout.earnedAchievementIds ?? emptyEarnedAchievementIds;
+
 export const selectAchievements = createSelector(
   [
     selectWorkoutActivity,
@@ -2252,8 +2256,10 @@ export const selectAchievements = createSelector(
     selectWorkoutSetsById,
     selectExercises,
     selectStrengthProfile,
+    selectEarnedAchievementIds,
   ],
-  (activity, records, sessions, workoutSets, exercises, strength): AchievementView[] => {
+  (activity, records, sessions, workoutSets, exercises, strength, earnedIds): AchievementView[] => {
+    const earnedSet = new Set(earnedIds);
     const muscleGroups = new Set<MuscleGroup>();
     let bestSessionVolume = 0;
     let hasFreestyleWorkout = false;
@@ -2288,7 +2294,9 @@ export const selectAchievements = createSelector(
     };
 
     return ACHIEVEMENTS.map((achievement) => {
-      const isEarned = achievement.isEarned(stats);
+      // Sticky: a badge stays earned once unlocked, even if the data behind it
+      // is later deleted.
+      const isEarned = earnedSet.has(achievement.id) || achievement.isEarned(stats);
 
       return {
         id: achievement.id,

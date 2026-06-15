@@ -160,6 +160,8 @@ export type WorkoutState = {
   lastCreatedExerciseId?: string | null;
   /** Bodyweight + sex, used for strength-level scoring. */
   profile?: UserProfile;
+  /** Achievements that have ever been earned — kept sticky across data deletion. */
+  earnedAchievementIds?: string[];
 };
 
 export type UpdateProfileInput = UserProfile;

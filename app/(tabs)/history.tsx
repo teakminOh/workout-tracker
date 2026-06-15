@@ -3,18 +3,39 @@ import { ScrollView, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { useAppDialog } from '@/components/ui/app-dialog';
 import { Icon } from '@/components/ui/icon';
+import { IconButton } from '@/components/ui/icon-button';
 import { PressableScale } from '@/components/ui/pressable-scale';
 import { Palette } from '@/constants/theme';
 import { selectWorkoutHistory } from '@/features/workouts/workout-selectors';
-import { useAppSelector } from '@/store/hooks';
+import { clearWorkoutHistory } from '@/features/workouts/workout-slice';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { formatDuration } from '@/utils/workout-formatters';
 
 const cardStyle = { borderCurve: 'continuous' } as const;
 
 export default function HistoryScreen() {
   const router = useRouter();
+  const dispatch = useAppDispatch();
+  const showDialog = useAppDialog();
   const history = useAppSelector(selectWorkoutHistory);
+
+  const handleClearHistory = () => {
+    showDialog({
+      title: 'Clear all history?',
+      message:
+        'This permanently deletes every logged workout and resets your analytics. Your programs, exercises, profile, and earned badges are kept.',
+      buttons: [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: () => dispatch(clearWorkoutHistory()),
+        },
+      ],
+    });
+  };
 
   return (
     <ThemedView className="flex-1">
@@ -22,7 +43,18 @@ export default function HistoryScreen() {
         className="flex-1"
         contentContainerClassName="gap-3 px-5 py-8"
         showsVerticalScrollIndicator={false}>
-        <ThemedText type="label">All workouts</ThemedText>
+        <View className="flex-row items-center justify-between">
+          <ThemedText type="label">All workouts</ThemedText>
+          {history.length > 0 ? (
+            <IconButton
+              name="trash-2"
+              accessibilityLabel="Clear history"
+              size={16}
+              color={Palette.danger}
+              onPress={handleClearHistory}
+            />
+          ) : null}
+        </View>
         {history.length > 0 ? (
           history.map((workout) => (
             <PressableScale

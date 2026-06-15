@@ -7,6 +7,7 @@ import { LineChart } from 'react-native-gifted-charts';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { AppButton } from '@/components/ui/app-button';
+import { useAppDialog } from '@/components/ui/app-dialog';
 import { Icon } from '@/components/ui/icon';
 import { PressableScale } from '@/components/ui/pressable-scale';
 import { AchievementBadge } from '@/components/workout/achievement-badge';
@@ -23,7 +24,8 @@ import {
   type ExerciseTrendPoint,
   type PersonalRecordKind,
 } from '@/features/workouts/workout-selectors';
-import { useAppSelector } from '@/store/hooks';
+import { clearWorkoutHistory, markAchievementsEarned } from '@/features/workouts/workout-slice';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import type { TrainingGoal, WeightUnit } from '@/types/workout';
 
 const cardStyle = { borderCurve: 'continuous' } as const;
@@ -150,11 +152,14 @@ function TrendChart({
 
 export default function StatsScreen() {
   const router = useRouter();
+  const dispatch = useAppDispatch();
+  const showDialog = useAppDialog();
   const activity = useAppSelector(selectWorkoutActivity);
   const records = useAppSelector(selectPersonalRecords);
   const exerciseOptions = useAppSelector(selectExercisesWithHistory);
   const strength = useAppSelector(selectStrengthProfile);
   const achievements = useAppSelector(selectAchievements);
+  const earnedAchievementIds = useAppSelector((state) => state.workout.earnedAchievementIds);
   const { width } = useWindowDimensions();
 
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
@@ -164,6 +169,35 @@ export default function StatsScreen() {
       setSelectedExerciseId(exerciseOptions[0].exerciseId);
     }
   }, [exerciseOptions, selectedExerciseId]);
+
+  // Persist newly-earned badges so they stick even if the underlying data is
+  // later deleted (sticky achievements).
+  useEffect(() => {
+    const persisted = new Set(earnedAchievementIds ?? []);
+    const newlyEarned = achievements
+      .filter((achievement) => achievement.isEarned && !persisted.has(achievement.id))
+      .map((achievement) => achievement.id);
+
+    if (newlyEarned.length > 0) {
+      dispatch(markAchievementsEarned(newlyEarned));
+    }
+  }, [achievements, earnedAchievementIds, dispatch]);
+
+  const handleResetAnalytics = () => {
+    showDialog({
+      title: 'Reset analytics?',
+      message:
+        'This clears all logged workouts and the stats derived from them. Your profile and earned badges are kept.',
+      buttons: [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: () => dispatch(clearWorkoutHistory()),
+        },
+      ],
+    });
+  };
 
   const trend = useAppSelector((state) =>
     selectedExerciseId ? selectExerciseTrend(state, selectedExerciseId) : EMPTY_TREND
@@ -364,6 +398,14 @@ export default function StatsScreen() {
               </View>
             ))}
           </View>
+        </View>
+
+        {/* Danger zone */}
+        <View className="gap-2 pt-2">
+          <AppButton title="Reset Analytics" variant="danger" onPress={handleResetAnalytics} />
+          <ThemedText className="text-center text-[12px] leading-4 opacity-50">
+            Clears all logged workouts. Keeps your profile and earned badges.
+          </ThemedText>
         </View>
       </ScrollView>
     </ThemedView>

@@ -757,6 +757,19 @@ export const workoutSlice = createSlice({
           if (session.setIds.some((setId) => removedSetIds.has(setId))) {
             session.setIds = session.setIds.filter((setId) => !removedSetIds.has(setId));
           }
+
+          // Drop sessions left empty once this exercise's sets are gone, unless
+          // they're still an explicit freestyle list of exercises.
+          const isEmpty =
+            session.setIds.length === 0 && (session.exerciseIds?.length ?? 0) === 0;
+
+          if (isEmpty) {
+            if (state.activeWorkoutSessionId === session.id) {
+              state.activeWorkoutSessionId = null;
+            }
+
+            delete state.workoutSessions[session.id];
+          }
         });
       }
 
@@ -772,6 +785,20 @@ export const workoutSlice = createSlice({
     },
     clearLastCreatedExercise(state) {
       state.lastCreatedExerciseId = null;
+    },
+    clearWorkoutHistory(state) {
+      // Wipe all logged workouts; every analytic is derived from these, so this
+      // resets stats too. Programs, exercises, profile, and earned (sticky)
+      // achievements are intentionally preserved.
+      state.workoutSets = {};
+      state.workoutSessions = {};
+      state.activeWorkoutSessionId = null;
+    },
+    markAchievementsEarned(state, action: PayloadAction<string[]>) {
+      const earned = new Set(state.earnedAchievementIds ?? []);
+
+      action.payload.forEach((id) => earned.add(id));
+      state.earnedAchievementIds = [...earned];
     },
     updateProfile(state, action: PayloadAction<UpdateProfileInput>) {
       state.profile = {
@@ -791,6 +818,7 @@ export const {
   archiveWorkoutDay,
   clearCurrentWorkout,
   clearLastCreatedExercise,
+  clearWorkoutHistory,
   createExercise,
   createWorkoutProgram,
   deleteExercise,
@@ -798,6 +826,7 @@ export const {
   deleteWorkoutProgram,
   finishCurrentWorkout,
   hydrateWorkoutState,
+  markAchievementsEarned,
   removeExerciseFromActiveSession,
   repeatWorkoutSession,
   reorderProgramExercises,

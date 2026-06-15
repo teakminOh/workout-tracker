@@ -5,7 +5,6 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { AppButton } from '@/components/ui/app-button';
 import { Icon } from '@/components/ui/icon';
-import { IconButton } from '@/components/ui/icon-button';
 import { PressableScale } from '@/components/ui/pressable-scale';
 import { Palette } from '@/constants/theme';
 import { selectProgramSummaries } from '@/features/workouts/workout-selectors';
@@ -28,47 +27,14 @@ export default function HomeScreen() {
     <ThemedView className="flex-1">
       <ScrollView
         className="flex-1"
-        contentContainerClassName="gap-7 px-5 pb-28 pt-8"
+        contentContainerClassName="gap-7 px-5 pb-10 pt-8"
         showsVerticalScrollIndicator={false}>
-        <View className="flex-row items-center justify-between gap-3">
+        <View className="gap-1">
           <ThemedText type="title">Workout Tracker</ThemedText>
-          <View className="flex-row gap-2">
-            <IconButton
-              name="user"
-              accessibilityLabel="Profile"
-              className="bg-surface"
-              color={Palette.accent}
-              onPress={() => router.push('/profile' as Href)}
-            />
-            <IconButton
-              name="clock"
-              accessibilityLabel="Workout history"
-              className="bg-surface"
-              color={Palette.accent}
-              onPress={() => router.push('/history' as Href)}
-            />
-            <IconButton
-              name="list"
-              accessibilityLabel="Exercise library"
-              className="bg-surface"
-              color={Palette.accent}
-              onPress={() => router.push('/exercises' as Href)}
-            />
-            <IconButton
-              name="bar-chart-2"
-              accessibilityLabel="View stats"
-              className="bg-surface"
-              color={Palette.accent}
-              onPress={() => router.push('/stats' as Href)}
-            />
-          </View>
+          <ThemedText className="opacity-60">Train with a plan, or just start lifting.</ThemedText>
         </View>
 
-        <AppButton
-          title="Start Workout"
-          icon="zap"
-          onPress={handleStartFreestyle}
-        />
+        <AppButton title="Start Workout" icon="zap" onPress={handleStartFreestyle} />
 
         <View className="gap-3">
           <ThemedText type="label">Programs</ThemedText>
@@ -105,16 +71,16 @@ export default function HomeScreen() {
               </ThemedText>
             </View>
           )}
+
+          <PressableScale
+            accessibilityLabel="Create workout program"
+            accessibilityRole="button"
+            className="mt-1 h-14 w-14 items-center justify-center self-center rounded-full bg-accent"
+            onPress={() => router.push('/create-program' as Href)}>
+            <Icon name="plus" size={28} color={Palette.onAccent} />
+          </PressableScale>
         </View>
       </ScrollView>
-
-      <PressableScale
-        accessibilityLabel="Create workout program"
-        accessibilityRole="button"
-        className="absolute bottom-8 h-14 w-14 items-center justify-center self-center rounded-full bg-accent"
-        onPress={() => router.push('/create-program' as Href)}>
-        <Icon name="plus" size={28} color={Palette.onAccent} />
-      </PressableScale>
     </ThemedView>
   );
 }
