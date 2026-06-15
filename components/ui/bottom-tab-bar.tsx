@@ -38,7 +38,7 @@ export function BottomTabBar({ state, navigation }: BottomTabBarProps) {
         borderTopColor: Palette.line,
         backgroundColor: Palette.surface,
       }}
-      className="flex-row px-2 pt-2">
+      className="flex-row w-full px-2 pt-2">
       {state.routes.map((route, index) => {
         const isFocused = state.index === index;
         const icon = tabIcons[route.name] ?? 'circle';
@@ -57,34 +57,35 @@ export function BottomTabBar({ state, navigation }: BottomTabBarProps) {
         };
 
         return (
-          <PressableScale
-            key={route.key}
-            accessibilityRole="button"
-            accessibilityState={isFocused ? { selected: true } : {}}
-            accessibilityLabel={label}
-            scaleTo={0.9}
-            className="flex-1 items-center gap-1"
-            onPress={onPress}>
-            <View
-              style={{ borderCurve: 'continuous' }}
-              className={[
-                'h-9 w-16 items-center justify-center rounded-full',
-                isFocused ? 'bg-accent-soft' : undefined,
-              ]
-                .filter(Boolean)
-                .join(' ')}>
-              <Icon name={icon} size={20} color={isFocused ? Palette.accent : Palette.muted} />
-            </View>
-            <ThemedText
-              style={{
-                fontSize: 11,
-                lineHeight: 14,
-                color: isFocused ? Palette.accent : Palette.faint,
-                fontWeight: isFocused ? '600' : '400',
-              }}>
-              {label}
-            </ThemedText>
-          </PressableScale>
+          <View key={route.key} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityState={isFocused ? { selected: true } : {}}
+              accessibilityLabel={label}
+              scaleTo={0.9}
+              onPress={onPress}>
+              <View
+                style={{ borderCurve: 'continuous' }}
+                className={[
+                  'h-9 w-16 items-center justify-center rounded-full mb-1',
+                  isFocused ? 'bg-accent-soft' : undefined,
+                ]
+                  .filter(Boolean)
+                  .join(' ')}>
+                <Icon name={icon} size={20} color={isFocused ? Palette.accent : Palette.muted} />
+              </View>
+              <ThemedText
+                style={{
+                  fontSize: 11,
+                  lineHeight: 14,
+                  color: isFocused ? Palette.accent : Palette.faint,
+                  fontWeight: isFocused ? '600' : '400',
+                  textAlign: 'center',
+                }}>
+                {label}
+              </ThemedText>
+            </PressableScale>
+          </View>
         );
       })}
     </View>
