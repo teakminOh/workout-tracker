@@ -1,11 +1,13 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { AppButton } from '@/components/ui/app-button';
+import { useAppDialog } from '@/components/ui/app-dialog';
 import { AppTextInput } from '@/components/ui/app-text-input';
+import { IconButton } from '@/components/ui/icon-button';
 import { PressableScale } from '@/components/ui/pressable-scale';
 import { Palette } from '@/constants/theme';
 import { createExercise, updateExercise } from '@/features/workouts/workout-slice';
@@ -69,7 +71,9 @@ const categoryOptions: { label: string; value: TrainingGoal; description: string
 
 export default function CreateExerciseScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const dispatch = useAppDispatch();
+  const showDialog = useAppDialog();
   const params = useLocalSearchParams<{ exerciseId?: string | string[] }>();
   const exerciseId = Array.isArray(params.exerciseId) ? params.exerciseId[0] : params.exerciseId;
   const existing = useAppSelector((state) =>
@@ -94,11 +98,29 @@ export default function CreateExerciseScreen() {
 
   const canSave = name.trim().length > 0;
 
-  const handleSave = () => {
-    if (!canSave) {
-      return;
-    }
+  // Snapshot of the saved exercise (or create-mode defaults) to diff against.
+  const initial = useMemo(
+    () => ({
+      name: existing?.name ?? '',
+      muscleGroups: existing?.muscleGroups ?? [],
+      unit: existing?.defaultUnit ?? ('kg' as WeightUnit),
+      trackingMode: existing?.trackingMode ?? ('reps' as ExerciseTrackingMode),
+      trainingGoal: existing?.trainingGoal ?? ('strength' as TrainingGoal),
+    }),
+    [existing]
+  );
 
+  const sameMuscleGroups = (a: MuscleGroup[], b: MuscleGroup[]) =>
+    a.length === b.length && a.every((group) => b.includes(group));
+
+  const isDirty =
+    name.trim() !== initial.name.trim() ||
+    unit !== initial.unit ||
+    trackingMode !== initial.trackingMode ||
+    trainingGoal !== initial.trainingGoal ||
+    !sameMuscleGroups(muscleGroups, initial.muscleGroups);
+
+  const persist = () => {
     const payload = { name, muscleGroups, defaultUnit: unit, trainingGoal, trackingMode };
 
     if (existing) {
@@ -106,12 +128,88 @@ export default function CreateExerciseScreen() {
     } else {
       dispatch(createExercise(payload));
     }
+  };
 
+  // Latest-value refs so the one-time beforeRemove listener reads current state.
+  const isDirtyRef = useRef(isDirty);
+  isDirtyRef.current = isDirty;
+  const canSaveRef = useRef(canSave);
+  canSaveRef.current = canSave;
+  const persistRef = useRef(persist);
+  persistRef.current = persist;
+  const bypassRef = useRef(false);
+
+  const handleSave = () => {
+    if (!canSave) {
+      return;
+    }
+
+    bypassRef.current = true;
+    persist();
     router.back();
   };
 
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (event) => {
+      if (bypassRef.current || !isDirtyRef.current) {
+        return;
+      }
+
+      event.preventDefault();
+
+      const buttons: {
+        text: string;
+        style?: 'default' | 'cancel' | 'destructive';
+        onPress?: () => void;
+      }[] = [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Discard',
+          style: 'destructive',
+          onPress: () => {
+            bypassRef.current = true;
+            navigation.dispatch(event.data.action);
+          },
+        },
+      ];
+
+      if (canSaveRef.current) {
+        buttons.push({
+          text: 'Save',
+          onPress: () => {
+            bypassRef.current = true;
+            persistRef.current();
+            navigation.dispatch(event.data.action);
+          },
+        });
+      }
+
+      showDialog({
+        title: 'Unsaved changes',
+        message: 'You have unsaved changes to this exercise.',
+        buttons,
+      });
+    });
+
+    return unsubscribe;
+  }, [navigation, showDialog]);
+
   return (
     <ThemedView className="flex-1">
+      <Stack.Screen
+        options={{
+          headerRight: () => (
+            <IconButton
+              name="check"
+              accessibilityLabel="Save exercise"
+              size={22}
+              color={isDirty && canSave ? Palette.accent : Palette.muted}
+              disabled={!isDirty || !canSave}
+              onPress={handleSave}
+            />
+          ),
+        }}
+      />
       <KeyboardAvoidingView
         className="flex-1"
         behavior={Platform.select({ ios: 'padding', default: undefined })}>

@@ -12,6 +12,8 @@ type AppButtonProps = Omit<PressableProps, 'style'> & {
   title: string;
   variant?: AppButtonVariant;
   icon?: IconName;
+  /** Side of the title the icon sits on. Defaults to 'left'. */
+  iconPosition?: 'left' | 'right';
   className?: string;
 };
 
@@ -33,19 +35,27 @@ export function AppButton({
   title,
   variant = 'primary',
   icon,
+  iconPosition = 'left',
   disabled = false,
   className,
   ...pressableProps
 }: AppButtonProps) {
   const textColor = textColors[variant];
+  const iconNode = icon ? <Icon name={icon} size={18} color={textColor} /> : null;
 
   return (
     <PressableScale
       accessibilityRole="button"
       disabled={disabled}
-      style={{ borderCurve: 'continuous' }}
+      style={{
+        borderCurve: 'continuous',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+      }}
       className={[
-        'min-h-12 flex-row items-center justify-center gap-2 rounded-10 px-4 py-3',
+        'min-h-12 rounded-10 px-4 py-3',
         buttonClassNames[variant],
         disabled ? 'opacity-40' : undefined,
         className,
@@ -53,10 +63,11 @@ export function AppButton({
         .filter(Boolean)
         .join(' ')}
       {...pressableProps}>
-      {icon ? <Icon name={icon} size={18} color={textColor} /> : null}
+      {iconPosition === 'left' ? iconNode : null}
       <ThemedText type="defaultSemiBold" style={{ color: textColor }}>
         {title}
       </ThemedText>
+      {iconPosition === 'right' ? iconNode : null}
     </PressableScale>
   );
 }

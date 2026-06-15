@@ -9,7 +9,10 @@ import { IconButton } from '@/components/ui/icon-button';
 import { PressableScale } from '@/components/ui/pressable-scale';
 import { Palette } from '@/constants/theme';
 import { selectWorkoutHistory } from '@/features/workouts/workout-selectors';
-import { clearWorkoutHistory } from '@/features/workouts/workout-slice';
+import {
+  hideAllWorkoutsFromHistory,
+  hideWorkoutFromHistory,
+} from '@/features/workouts/workout-slice';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { formatDuration } from '@/utils/workout-formatters';
 
@@ -21,17 +24,32 @@ export default function HistoryScreen() {
   const showDialog = useAppDialog();
   const history = useAppSelector(selectWorkoutHistory);
 
-  const handleClearHistory = () => {
+  const handleHideAll = () => {
     showDialog({
-      title: 'Clear all history?',
+      title: 'Clear history list?',
       message:
-        'This permanently deletes every logged workout and resets your analytics. Your programs, exercises, profile, and earned badges are kept.',
+        'This removes every workout from your history list. Your analytics and earned badges keep counting them — use Reset analytics on the Stats tab to wipe those.',
       buttons: [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Clear',
           style: 'destructive',
-          onPress: () => dispatch(clearWorkoutHistory()),
+          onPress: () => dispatch(hideAllWorkoutsFromHistory()),
+        },
+      ],
+    });
+  };
+
+  const handleHideWorkout = (id: string, name: string) => {
+    showDialog({
+      title: 'Remove from history?',
+      message: `"${name}" will be hidden from your history. Your analytics and badges still count it.`,
+      buttons: [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => dispatch(hideWorkoutFromHistory(id)),
         },
       ],
     });
@@ -48,10 +66,10 @@ export default function HistoryScreen() {
           {history.length > 0 ? (
             <IconButton
               name="trash-2"
-              accessibilityLabel="Clear history"
+              accessibilityLabel="Clear history list"
               size={16}
               color={Palette.danger}
-              onPress={handleClearHistory}
+              onPress={handleHideAll}
             />
           ) : null}
         </View>
@@ -76,6 +94,13 @@ export default function HistoryScreen() {
                     {workout.isFreestyle ? ' · Freestyle' : ''}
                   </ThemedText>
                 </View>
+                <IconButton
+                  name="trash-2"
+                  accessibilityLabel={`Remove ${workout.name} from history`}
+                  size={16}
+                  color={Palette.danger}
+                  onPress={() => handleHideWorkout(workout.id, workout.name)}
+                />
                 <Icon name="chevron-right" size={24} color={Palette.muted} />
               </View>
               <View className="flex-row gap-2">

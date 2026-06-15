@@ -1,12 +1,11 @@
-import { cssInterop } from 'nativewind';
-import { Pressable, type PressableProps, type StyleProp, type ViewStyle } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
-
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
-
-cssInterop(AnimatedPressable, { className: 'style' });
-
-const pressSpring = { damping: 18, stiffness: 320 };
+import { useState } from 'react';
+import {
+  Pressable,
+  type GestureResponderEvent,
+  type PressableProps,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 
 type PressableScaleProps = Omit<PressableProps, 'style'> & {
   className?: string;
@@ -16,8 +15,13 @@ type PressableScaleProps = Omit<PressableProps, 'style'> & {
 };
 
 /**
- * Pressable with gentle spring scale feedback. The base interactive
- * element for buttons, cards, and chips.
+ * Pressable with a quick scale feedback. The base interactive element for
+ * buttons, cards, and chips.
+ *
+ * Implemented as a plain `Pressable` (not a Reanimated/cssInterop component) so
+ * that NativeWind `className` styling applies reliably on native — a Reanimated
+ * animated component fights NativeWind for the `style` prop and drops the styles
+ * on native.
  */
 export function PressableScale({
   scaleTo = 0.97,
@@ -26,21 +30,17 @@ export function PressableScale({
   style,
   ...pressableProps
 }: PressableScaleProps) {
-  const scale = useSharedValue(1);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
+  const [pressed, setPressed] = useState(false);
 
   return (
-    <AnimatedPressable
-      style={[animatedStyle, style]}
-      onPressIn={(event) => {
-        scale.value = withSpring(scaleTo, pressSpring);
+    <Pressable
+      style={[{ transform: [{ scale: pressed ? scaleTo : 1 }] }, style]}
+      onPressIn={(event: GestureResponderEvent) => {
+        setPressed(true);
         onPressIn?.(event);
       }}
-      onPressOut={(event) => {
-        scale.value = withSpring(1, pressSpring);
+      onPressOut={(event: GestureResponderEvent) => {
+        setPressed(false);
         onPressOut?.(event);
       }}
       {...pressableProps}

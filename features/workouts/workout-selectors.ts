@@ -225,6 +225,26 @@ const selectWorkoutSetsById = (state: RootState) => state.workout.workoutSets;
 const selectProgressionRules = (state: RootState) => state.workout.progressionRules;
 const selectActiveWorkoutSessionId = (state: RootState) => state.workout.activeWorkoutSessionId;
 
+/**
+ * Workout sets with analytics-excluded ones (mis-logged exercises) removed. Used
+ * by the analytics selectors only — History and session detail keep the full set
+ * so excluded entries stay visible/restorable.
+ */
+const selectAnalyticsWorkoutSetsById = createSelector([selectWorkoutSetsById], (workoutSets) => {
+  const filtered: typeof workoutSets = {};
+  let hasExcluded = false;
+
+  for (const [id, set] of Object.entries(workoutSets)) {
+    if (set.excludedFromAnalytics) {
+      hasExcluded = true;
+      continue;
+    }
+    filtered[id] = set;
+  }
+
+  return hasExcluded ? filtered : workoutSets;
+});
+
 export const selectAllCompletedSessions = createSelector([selectWorkoutSessions], (workoutSessions) => {
   const completed = Object.values(workoutSessions)
     .filter((session) => session.status === 'completed')
@@ -1659,7 +1679,7 @@ export const selectLastCreatedExerciseId = (state: RootState) =>
   state.workout.lastCreatedExerciseId ?? null;
 
 export const selectPersonalRecords = createSelector(
-  [selectAllCompletedSessions, selectWorkoutSetsById, selectExercises],
+  [selectAllCompletedSessions, selectAnalyticsWorkoutSetsById, selectExercises],
   (sessions, workoutSets, exercises): ExercisePersonalRecords[] => {
     const byExercise = new Map<string, RecordAccumulator>();
 
@@ -1725,7 +1745,7 @@ export const selectPersonalRecords = createSelector(
 );
 
 export const selectExercisesWithHistory = createSelector(
-  [selectAllCompletedSessions, selectWorkoutSetsById, selectExercises],
+  [selectAllCompletedSessions, selectAnalyticsWorkoutSetsById, selectExercises],
   (sessions, workoutSets, exercises): ExerciseHistoryOption[] => {
     const sessionCounts = new Map<string, number>();
 
@@ -1753,7 +1773,7 @@ export const selectExercisesWithHistory = createSelector(
 );
 
 export const selectExerciseTrend = createSelector(
-  [selectAllCompletedSessions, selectWorkoutSetsById, selectExerciseIdParam],
+  [selectAllCompletedSessions, selectAnalyticsWorkoutSetsById, selectExerciseIdParam],
   (sessions, workoutSets, exerciseId): ExerciseTrendPoint[] => {
     const points: ExerciseTrendPoint[] = [];
 
@@ -1872,6 +1892,8 @@ export type SessionExerciseGroup = {
   bestSetLabel: string;
   setCount: number;
   volume: number;
+  /** True when this exercise's sets in this workout are excluded from analytics. */
+  excludedFromAnalytics: boolean;
 };
 
 export type MuscleGroupBreakdownItem = {
@@ -2053,6 +2075,8 @@ const getSessionExerciseGroups = (
       bestSetLabel: groupSets.length > 0 ? formatWorkoutSet(getBestSet(groupSets)) : '',
       setCount: groupSets.length,
       volume: Math.round(groupSets.reduce((total, set) => total + getSetVolume(set), 0)),
+      excludedFromAnalytics:
+        groupSets.length > 0 && groupSets.every((set) => set.excludedFromAnalytics),
     };
   });
 };
@@ -2060,11 +2084,13 @@ const getSessionExerciseGroups = (
 export const selectWorkoutHistory = createSelector(
   [selectAllCompletedSessions, selectWorkoutSetsById],
   (completedSessions, workoutSets): WorkoutHistoryItem[] => {
-    if (completedSessions.length === 0) {
+    const visible = completedSessions.filter((session) => !session.hiddenFromHistory);
+
+    if (visible.length === 0) {
       return emptyWorkoutHistory;
     }
 
-    return [...completedSessions]
+    return [...visible]
       .sort((a, b) => getSessionStartedAtTime(b) - getSessionStartedAtTime(a))
       .map((session) => {
         const summary = getSessionSummary(session, workoutSets);
@@ -2156,7 +2182,7 @@ const emptyStrengthLevels: StrengthLevel[] = [];
 const selectProfileState = (state: RootState): UserProfile | null => state.workout.profile ?? null;
 
 export const selectStrengthProfile = createSelector(
-  [selectProfileState, selectExercises, selectAllCompletedSessions, selectWorkoutSetsById],
+  [selectProfileState, selectExercises, selectAllCompletedSessions, selectAnalyticsWorkoutSetsById],
   (profile, exercises, sessions, workoutSets): StrengthProfileState => {
     const isComplete = Boolean(profile?.bodyweightKg && profile.sex);
 
@@ -2253,7 +2279,7 @@ export const selectAchievements = createSelector(
     selectWorkoutActivity,
     selectPersonalRecords,
     selectAllCompletedSessions,
-    selectWorkoutSetsById,
+    selectAnalyticsWorkoutSetsById,
     selectExercises,
     selectStrengthProfile,
     selectEarnedAchievementIds,

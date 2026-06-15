@@ -24,7 +24,7 @@ import {
   type ExerciseTrendPoint,
   type PersonalRecordKind,
 } from '@/features/workouts/workout-selectors';
-import { clearWorkoutHistory, markAchievementsEarned } from '@/features/workouts/workout-slice';
+import { markAchievementsEarned, resetAnalytics } from '@/features/workouts/workout-slice';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import type { TrainingGoal, WeightUnit } from '@/types/workout';
 
@@ -187,13 +187,13 @@ export default function StatsScreen() {
     showDialog({
       title: 'Reset analytics?',
       message:
-        'This clears all logged workouts and the stats derived from them. Your profile and earned badges are kept.',
+        'This permanently clears all logged workouts, the stats derived from them, and your earned badges. Your programs, exercises, and profile (sex/weight) are kept. This can’t be undone.',
       buttons: [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Reset',
           style: 'destructive',
-          onPress: () => dispatch(clearWorkoutHistory()),
+          onPress: () => dispatch(resetAnalytics()),
         },
       ],
     });

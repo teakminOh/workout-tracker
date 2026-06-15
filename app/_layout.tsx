@@ -12,9 +12,13 @@ import { Palette } from '@/constants/theme';
 import { hydrateWorkoutStore, store } from '@/store';
 
 // The app is dark-only: lock both NativeWind variants and the RN appearance.
-colorScheme.set('dark');
-if (process.env.EXPO_OS !== 'web') {
-  Appearance.setColorScheme('dark');
+// Skip during Expo's Node static-render pass (no browser/native runtime), where
+// colorScheme.set throws "Cannot manually set color scheme while not in a browser environment".
+if (typeof window !== 'undefined') {
+  colorScheme.set('dark');
+  if (process.env.EXPO_OS !== 'web') {
+    Appearance.setColorScheme('dark');
+  }
 }
 
 export default function RootLayout() {

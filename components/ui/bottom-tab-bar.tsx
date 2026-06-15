@@ -67,8 +67,7 @@ export function BottomTabBar({ state, navigation }: BottomTabBarProps) {
               <View
                 style={{ borderCurve: 'continuous' }}
                 className={[
-                  'h-9 w-16 items-center justify-center rounded-full mb-1',
-                  isFocused ? 'bg-accent-soft' : undefined,
+                  'h-9 w-16 items-center justify-center mb-1',
                 ]
                   .filter(Boolean)
                   .join(' ')}>

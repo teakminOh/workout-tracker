@@ -794,6 +794,75 @@ export const workoutSlice = createSlice({
       state.workoutSessions = {};
       state.activeWorkoutSessionId = null;
     },
+    hideWorkoutFromHistory(state, action: PayloadAction<string>) {
+      // Soft-hide from the History list only — the session keeps feeding analytics.
+      const session = state.workoutSessions[action.payload];
+
+      if (!session) {
+        return;
+      }
+
+      session.hiddenFromHistory = true;
+      session.hiddenAt = new Date().toISOString();
+    },
+    unhideWorkoutFromHistory(state, action: PayloadAction<string>) {
+      const session = state.workoutSessions[action.payload];
+
+      if (!session) {
+        return;
+      }
+
+      session.hiddenFromHistory = false;
+      session.hiddenAt = undefined;
+    },
+    hideAllWorkoutsFromHistory(state) {
+      // Empties the History list while every workout's analytics stay intact.
+      const now = new Date().toISOString();
+
+      Object.values(state.workoutSessions).forEach((session) => {
+        if (session.status === 'completed') {
+          session.hiddenFromHistory = true;
+          session.hiddenAt = now;
+        }
+      });
+    },
+    excludeExerciseFromAnalytics(
+      state,
+      action: PayloadAction<{ sessionId: string; exerciseId: string }>
+    ) {
+      // Drop a mis-logged exercise (all its sets in this one workout) from analytics.
+      const { sessionId, exerciseId } = action.payload;
+      const now = new Date().toISOString();
+
+      Object.values(state.workoutSets).forEach((set) => {
+        if (set.workoutSessionId === sessionId && set.exerciseId === exerciseId) {
+          set.excludedFromAnalytics = true;
+          set.excludedAt = now;
+        }
+      });
+    },
+    restoreExerciseToAnalytics(
+      state,
+      action: PayloadAction<{ sessionId: string; exerciseId: string }>
+    ) {
+      const { sessionId, exerciseId } = action.payload;
+
+      Object.values(state.workoutSets).forEach((set) => {
+        if (set.workoutSessionId === sessionId && set.exerciseId === exerciseId) {
+          set.excludedFromAnalytics = false;
+          set.excludedAt = undefined;
+        }
+      });
+    },
+    resetAnalytics(state) {
+      // The only destructive action: wipe all logged workouts, derived stats, and
+      // earned badges. Programs, day templates, exercises, progression rules, and
+      // profile (sex/weight) are kept.
+      state.workoutSets = {};
+      state.workoutSessions = {};
+      state.earnedAchievementIds = [];
+      state.activeWorkoutSessionId = null;
+    },
     markAchievementsEarned(state, action: PayloadAction<string[]>) {
       const earned = new Set(state.earnedAchievementIds ?? []);
 
@@ -824,15 +893,21 @@ export const {
   deleteExercise,
   deleteSet,
   deleteWorkoutProgram,
+  excludeExerciseFromAnalytics,
   finishCurrentWorkout,
+  hideAllWorkoutsFromHistory,
+  hideWorkoutFromHistory,
   hydrateWorkoutState,
   markAchievementsEarned,
   removeExerciseFromActiveSession,
   repeatWorkoutSession,
   reorderProgramExercises,
   reorderWorkoutDays,
+  resetAnalytics,
+  restoreExerciseToAnalytics,
   restoreWorkoutState,
   startFreestyleWorkoutSession,
+  unhideWorkoutFromHistory,
   startWorkoutSession,
   updateExercise,
   updateProfile,

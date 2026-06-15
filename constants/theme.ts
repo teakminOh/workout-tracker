@@ -27,7 +27,7 @@ export const Palette = {
   /** Translucent orange tint for selected surfaces */
   accentSoft: 'rgba(232, 116, 59, 0.14)',
   /** Text/icons placed on solid accent backgrounds */
-  onAccent: '#fb9d51',
+  onAccent: '#262421',
   danger: '#D9655B',
 } as const;
 

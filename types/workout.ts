@@ -120,6 +120,9 @@ export type WorkoutSession = {
   /** Ordered ad-hoc exercise list for a freestyle (program-less) session. */
   exerciseIds?: string[];
   status: WorkoutSessionStatus;
+  /** Hidden from the History list while still counting in analytics. */
+  hiddenFromHistory?: boolean;
+  hiddenAt?: string;
 };
 
 export type WorkoutSet = {
@@ -135,6 +138,9 @@ export type WorkoutSet = {
   powerQuality?: PowerQuality;
   completedAt: string;
   notes?: string;
+  /** Excluded from analytics (a mis-logged exercise in this workout). */
+  excludedFromAnalytics?: boolean;
+  excludedAt?: string;
 };
 
 export type ProgressionRule = {

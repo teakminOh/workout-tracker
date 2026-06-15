@@ -21,7 +21,7 @@ export const initialWorkoutState: WorkoutState = {
     },
     'shoulder-press': {
       id: 'shoulder-press',
-      name: 'Shoulder Press',
+      name: 'Overhead Press (OHP)',
       category: 'shoulders',
       muscleGroups: ['shoulders', 'triceps'],
       defaultUnit: 'kg',

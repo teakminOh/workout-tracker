@@ -14,7 +14,7 @@ export default function TabsLayout() {
         headerShadowVisible: false,
         sceneStyle: { backgroundColor: Palette.bg },
       }}>
-      <Tabs.Screen name="index" options={{ headerShown: false }} />
+      <Tabs.Screen name="index" options={{ title: 'Home' }} />
       <Tabs.Screen name="history" options={{ title: 'History' }} />
       <Tabs.Screen name="exercises" options={{ title: 'Exercises' }} />
       <Tabs.Screen name="stats" options={{ title: 'Stats' }} />

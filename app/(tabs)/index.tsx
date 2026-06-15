@@ -1,5 +1,5 @@
-import { ScrollView, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
+import { ScrollView, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -27,14 +27,10 @@ export default function HomeScreen() {
     <ThemedView className="flex-1">
       <ScrollView
         className="flex-1"
-        contentContainerClassName="gap-7 px-5 pb-10 pt-8"
-        showsVerticalScrollIndicator={false}>
-        <View className="gap-1">
-          <ThemedText type="title">Workout Tracker</ThemedText>
-          <ThemedText className="opacity-60">Train with a plan, or just start lifting.</ThemedText>
-        </View>
+        contentContainerClassName="gap-7 px-5 py-8"
+        keyboardShouldPersistTaps="handled">
 
-        <AppButton title="Start Workout" icon="zap" onPress={handleStartFreestyle} />
+        <AppButton title="Quick Workout" icon="zap" iconPosition="left" onPress={handleStartFreestyle} />
 
         <View className="gap-3">
           <ThemedText type="label">Programs</ThemedText>
