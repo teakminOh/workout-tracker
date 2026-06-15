@@ -122,12 +122,15 @@ function TrendChart({
     label: index % labelEvery === 0 ? item.label : '',
   }));
 
+  const yAxisLabelWidth = 44;
+
   return (
-    <View className="gap-3">
+    <View className="gap-3 overflow-hidden">
       <ThemedText type="label">{title}</ThemedText>
       <LineChart
         data={thinnedData}
-        width={width}
+        width={width - yAxisLabelWidth}
+        yAxisLabelWidth={yAxisLabelWidth}
         adjustToWidth
         initialSpacing={10}
         endSpacing={10}

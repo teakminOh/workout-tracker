@@ -101,12 +101,10 @@ export function ExercisePicker({ visible, onSelect, onClose }: ExercisePickerPro
                 <PressableScale
                   key={exercise.id}
                   style={cardStyle}
-                  className="flex-row items-center justify-between gap-3 rounded-10 bg-raised p-4"
+                  className="gap-1 rounded-10 bg-raised p-4"
                   onPress={() => onSelect(exercise.id)}>
-                  <ThemedText type="defaultSemiBold" className="flex-1">
-                    {exercise.name}
-                  </ThemedText>
-                  <ThemedText className="opacity-60">
+                  <ThemedText type="defaultSemiBold">{exercise.name}</ThemedText>
+                  <ThemedText className="text-[13px] leading-5 opacity-60">
                     {exercise.muscleGroups && exercise.muscleGroups.length > 0
                       ? `${exercise.muscleGroups.map((group) => muscleLabels[group]).join(', ')} · `
                       : ''}
